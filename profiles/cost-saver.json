@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "profile": "cost-saver",
+  "providerPreference": ["onnx", "vllm", "litellm", "cloud"],
+  "tokenCaps": "strict",
+  "cloudUsage": "minimized"
+}

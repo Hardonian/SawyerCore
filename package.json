@@ -1,0 +1,34 @@
+{
+  "name": "sawyercore",
+  "version": "0.1.0",
+  "description": "Deterministic edge AI runtime + governance engine",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "verify:ai": "vitest run tests/runtime/router.test.ts tests/runtime/providers.test.ts",
+    "verify:policy": "vitest run tests/policy/policy-engine.test.ts",
+    "verify:runtime": "vitest run tests/runtime/preload-planner.test.ts tests/runtime/onboarding-recommendation.test.ts",
+    "verify:config": "vitest run tests/config/config-init.test.ts",
+    "verify:recommendations": "vitest run tests/runtime/onboarding-recommendation.test.ts",
+    "sawyer:init": "tsx src/cli/sawyer-init.ts",
+    "sawyer:doctor": "tsx src/cli/sawyer-doctor.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@typescript-eslint/eslint-plugin": "^8.32.0",
+    "@typescript-eslint/parser": "^8.32.0",
+    "eslint": "^9.26.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}

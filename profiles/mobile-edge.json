@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "profile": "mobile-edge",
+  "eligibleTasks": ["classification", "embedding", "summarization"],
+  "batteryAware": true,
+  "thermalAware": true,
+  "compactOnly": true
+}

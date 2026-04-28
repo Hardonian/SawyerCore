@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "profile": "balanced",
+  "localFirst": true,
+  "litellmFallback": "non-sensitive-only",
+  "cloudFallback": "low-risk-only"
+}
