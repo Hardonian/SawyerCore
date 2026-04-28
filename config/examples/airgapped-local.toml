@@ -1,0 +1,12 @@
+bind = "127.0.0.1:8090"
+router_url = "http://127.0.0.1:8090"
+provider_url = "http://127.0.0.1:8080"
+allow_cloud = false
+private_mode = true
+max_request_bytes = 1048576
+max_context_tokens = 4096
+rate_limit_per_minute = 60
+audit_log_path = "./logs/sawyer-audit.log"
+model_id = "tiny-q4"
+model_path = "/opt/sawyer/models/tiny-q4.gguf"
+provider = "llama.cpp"

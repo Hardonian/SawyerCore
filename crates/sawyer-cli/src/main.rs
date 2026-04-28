@@ -39,6 +39,7 @@ enum Commands {
     Explain(ExplainArgs),
     Sim(SimArgs),
     Serve(ServeArgs),
+    Sim(SimArgs),
     Models(ModelsArgs),
     Mode(ModeArgs),
     Quickstart,
@@ -112,7 +113,7 @@ enum SimCommands {
 
 #[derive(Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "127.0.0.1:8080")]
+    #[arg(long, default_value = "127.0.0.1:8090")]
     bind: String,
     #[arg(long, default_value_t = false)]
     allow_lan: bool,
@@ -137,9 +138,20 @@ struct ServeArgs {
 }
 
 #[derive(Args)]
+struct SimArgs {
+    #[command(subcommand)]
+    command: SimCommands,
+}
+
+#[derive(Subcommand)]
+enum SimCommands {
+    Run,
+}
+
+#[derive(Args)]
 struct ModelsArgs {
     #[command(subcommand)]
-    command: ModelsCommands,
+    command: SecurityCommands,
 }
 
 #[derive(Subcommand)]
@@ -290,9 +302,7 @@ struct ProviderHealth {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
-
     match cli.command {
         Commands::Doctor(args) => doctor(args),
         Commands::Bench(args) => match args.command {
@@ -378,7 +388,6 @@ fn doctor(args: DoctorArgs) -> Result<()> {
             Ok(())
         }
     }
-}
 
 fn bench_quick() -> Result<()> {
     let lhs = vec![1.0_f32; 1024];
@@ -486,6 +495,10 @@ fn models_list_local() -> Result<()> {
             model.id, model.backend, model.available, model.status
         );
     }
+    cfg.version = target;
+
+    write_json(&args.file, &cfg)?;
+    println!("config migrated to version {}", cfg.version);
     Ok(())
 }
 
@@ -600,89 +613,148 @@ fn verify_audit_chain(path: &Path) -> Result<()> {
     }
 }
 
-fn calibrate() -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
+fn models_download(model_id: &str, yes: bool) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    if !model.source_url.starts_with("https://") {
+        bail!("refusing insecure URL for {model_id}; HTTPS is required");
     }
-    let providers = history.metrics_per_provider();
+    if model.expected_sha256.len() != 64 {
+        bail!("model {model_id} missing valid checksum metadata");
+    }
+    println!("Model license: {}", model.license);
+    if !yes {
+        println!("Refusing auto-download without explicit consent.");
+        println!("Re-run with: sawyer models download {model_id} --yes");
+        return Ok(());
+    }
 
-    println!("calibration profile");
-    println!("- telemetry_file={}", telemetry_path.display());
-    println!("- providers_seen={}", providers.len());
-    for (provider, metrics) in providers {
+    let path = PathBuf::from(&model.default_local_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let status = Command::new("curl")
+        .args([
+            "--fail",
+            "--location",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "-o",
+        ])
+        .arg(&path)
+        .arg(&model.source_url)
+        .status()
+        .context("failed to execute curl; install curl and retry")?;
+
+    if !status.success() {
+        bail!("download failed for {model_id}; check network and URL");
+    }
+
+    let actual = sha256_file(&path)?;
+    if actual != model.expected_sha256 {
+        let _ = fs::remove_file(&path);
+        bail!(
+            "checksum mismatch for {model_id}; file deleted (expected {}, got {})",
+            model.expected_sha256,
+            actual
+        );
+    }
+    println!("Downloaded and verified {} at {}", model_id, path.display());
+    Ok(())
+}
+
+fn models_verify(model_id: &str) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if !path.exists() {
+        bail!(
+            "MODEL_MISSING: {}\nNext: sawyer models download {} --yes",
+            path.display(),
+            model_id
+        );
+    }
+    let actual = sha256_file(&path)?;
+    if actual != model.expected_sha256 {
+        bail!("checksum mismatch for {model_id}");
+    }
+    println!("verified {}", model_id);
+    Ok(())
+}
+
+fn models_list_local() -> Result<()> {
+    let catalog = load_model_catalog()?;
+    for model in catalog.models {
+        let exists = Path::new(&model.default_local_path).exists();
         println!(
-            "- provider={} p50_ms={} p95_ms={} throughput_rps={:.2}",
-            provider, metrics.p50_latency_ms, metrics.p95_latency_ms, metrics.throughput_rps
+            "{} path={} present={} provider={} ctx={} size_bytes={} ram_gb={} tasks={}",
+            model.id,
+            model.default_local_path,
+            exists,
+            model.recommended_provider,
+            model.context_limit,
+            model.size_bytes,
+            model.recommended_ram_gb,
+            model.task_suitability.join(",")
         );
     }
     Ok(())
 }
 
-fn stats(args: StatsArgs) -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
+fn models_remove(model_id: &str) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if path.exists() {
+        fs::remove_file(&path)?;
+        println!("removed {}", path.display());
+    } else {
+        println!("nothing to remove; {} missing", path.display());
     }
-
-    match args.command {
-        StatsCommands::Providers => {
-            for (provider, metrics) in history.metrics_per_provider() {
-                println!(
-                    "{} samples={} avg_ms={} p50={} p95={} success={:.2} fail={:.2} timeout={:.2}",
-                    provider,
-                    metrics.samples,
-                    metrics.avg_latency_ms,
-                    metrics.p50_latency_ms,
-                    metrics.p95_latency_ms,
-                    metrics.success_rate,
-                    metrics.failure_rate,
-                    metrics.timeout_rate
-                );
-            }
-        }
-        StatsCommands::Tasks => {
-            for (task, summary) in history.task_summaries() {
-                println!(
-                    "{} best={} worst={}",
-                    task, summary.best_provider, summary.worst_provider
-                );
-            }
-        }
-        StatsCommands::Failures => {
-            for (provider, metrics) in history.metrics_per_provider() {
-                if metrics.failure_rate > 0.0 {
-                    println!(
-                        "{} fail_rate={:.2} timeout_rate={:.2}",
-                        provider, metrics.failure_rate, metrics.timeout_rate
-                    );
-                }
-            }
-        }
-    }
-
     Ok(())
 }
 
-fn explain_adaptive() -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
+fn first_run(args: FirstRunArgs) -> Result<()> {
+    let ram = detect_ram_gb();
+    let arch = std::env::consts::ARCH;
+    let os = std::env::consts::OS;
+    let pack = if ram <= 6 {
+        "tiny"
+    } else if ram <= 12 {
+        "balanced"
+    } else if ram <= 32 {
+        "quality-local"
+    } else {
+        "workstation"
+    };
+    let mode = if pack == "tiny" {
+        "local-tiny"
+    } else {
+        "local-balanced"
+    };
 
-    let explain = history.explain_adaptive("llama.cpp", "chat", &AdaptiveConfig::default());
-    println!("adaptive explanation");
-    println!("- changed={}", explain.changed);
-    println!("- what_changed={}", explain.what_changed);
-    println!("- why={}", explain.why);
-    println!("- telemetry_basis={}", explain.telemetry_basis);
-    println!("- confidence={:.2}", explain.confidence);
+    write_local_config(&args.config, mode)?;
+    let provider_ok = http_health("127.0.0.1", 8080, "/health");
+
+    println!("1. Your device: os={os} arch={arch} ram_gb={ram}");
+    println!("2. Recommended mode: {mode}");
+    println!("3. Recommended model: {pack}");
+    println!("4. Provider status: llama.cpp@127.0.0.1:8080 reachable={provider_ok}");
+    if let Ok(cfg) = parse_local_config(&args.config) {
+        if Path::new(&cfg.model_path).exists() {
+            println!(
+                "5. Next command: sawyer smoke local --config {}",
+                args.config.display()
+            );
+        } else {
+            println!(
+                "5. Next command: sawyer models download {} --yes",
+                cfg.model_id
+            );
+        }
+    }
     Ok(())
 }
 
@@ -699,37 +771,19 @@ fn sim_run() -> Result<()> {
         payload: "step".into(),
     });
 
-    let mut agents = vec![Agent::new(1)];
-    let (replay, metrics) = runner.run(&mut agents);
+fn cloud_blocked(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"cloud/test","messages":[{"role":"user","content":"private check"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 403"))
+}
 
-    let mut telemetry = TelemetryEngine::new(TelemetryConfig {
-        jsonl_path: default_telemetry_path(),
-        rolling_window_size: 100,
-        archive_path: None,
-    })?;
-    telemetry.record(RequestTelemetry {
-        request_id: format!("sim-{}", replay.seed),
-        timestamp_ms: replay.seed,
-        task_type: "simulation".to_string(),
-        input_size: replay.events.len(),
-        selected_provider: "sim-local".to_string(),
-        rejected_providers: vec![],
-        latency_ms: metrics.latency_ms as u64,
-        cost_usd_micros: Some(0),
-        success: true,
-        degraded: false,
-        timeout: false,
-        tokens_used: None,
-        memory_snapshot: None,
-        device_profile: None,
-    })?;
-
-    println!("sim run complete");
-    println!("- seed: {}", replay.seed);
-    println!("- events: {}", replay.events.len());
-    println!("- latency_ms: {}", metrics.latency_ms);
-    println!("- events_per_sec: {:.2}", metrics.events_per_sec);
-    Ok(())
+fn chat_call(host: &str, port: u16, model_id: &str) -> Result<bool> {
+    let body = format!(
+        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"smoke test\"}}]}}",
+        model_id
+    );
+    let raw = http_post(host, port, "/v1/chat/completions", &body)?;
+    Ok(raw.starts_with("HTTP/1.1 200") || raw.starts_with("HTTP/1.1 503"))
 }
 
 fn recommend_mode() -> RuntimeMode {
