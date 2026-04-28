@@ -1,0 +1,24 @@
+{
+  "name": "litellm-local",
+  "enabled": true,
+  "bind_host": "127.0.0.1",
+  "port": 4000,
+  "base_url": "http://127.0.0.1:4000/v1",
+  "default_model": "local-qwen",
+  "startup": {
+    "command": "./scripts/start-litellm.sh",
+    "config_file": "config/providers/litellm.local.yaml",
+    "timeout_seconds": 45,
+    "health_endpoint": "/v1/models",
+    "chat_endpoint": "/v1/chat/completions"
+  },
+  "routing": {
+    "primary": "http://127.0.0.1:8000/v1",
+    "cloud_providers_enabled": false,
+    "requires_cloud_keys": false
+  },
+  "safety": {
+    "localhost_only": true,
+    "hidden_fallback": false
+  }
+}

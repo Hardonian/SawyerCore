@@ -66,6 +66,7 @@ export function safeDefaultConfig(): SawyerConfig {
       allowModelList: [],
       maxCostPerRequestUsd: 0.02,
       maxTokens: 8192,
+      maxRequestBytes: 1024 * 1024,
       fallbackAllowed: false,
       dataRetention: 'none',
       tenantPermissions: {

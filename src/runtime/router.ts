@@ -7,6 +7,12 @@ import { AuditLogger } from '../observability/audit.js';
 
 export type RoutingDecision = ProviderTarget | 'DENY';
 
+export interface RoutingResult {
+  decision: RoutingDecision;
+  result?: InferenceResult;
+  reasons: string[];
+}
+
 export class SawyerRouter {
   private readonly optimizer = new SawyerOptimizationEngine();
   private readonly policyEngine: PolicyEngine;
@@ -41,6 +47,7 @@ export class SawyerRouter {
         requestedTokens: task.maxContextTokens,
         providerHealthy: health.healthy
       });
+
       if (!policyDecision.allowed) {
         denied.push({ provider: provider.name, reason: policyDecision.reasons.join('; ') });
         continue;

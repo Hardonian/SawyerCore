@@ -2,7 +2,7 @@ import type { AiTask, InferenceResult, Capability } from '../types/contracts.js'
 import type { RuntimeProvider, ProviderCapabilities, ProviderTarget } from './provider.js';
 import type { SawyerConfig } from '../types/config.js';
 
-type ProviderOpts = {
+interface ProviderOpts {
   name: string;
   target: ProviderTarget;
   healthy?: boolean;
@@ -11,7 +11,7 @@ type ProviderOpts = {
   supportsPrivateData?: boolean;
   baseCostPer1kTokens: number;
   baseLatencyMs: number;
-};
+}
 
 export type OpenAiCompatibleProviderOpts = ProviderOpts & {
   endpoint: string;
@@ -49,7 +49,7 @@ class StubProvider implements RuntimeProvider {
     this.healthy = healthy;
   }
 
-  async healthCheck(): Promise<{ healthy: boolean; reason?: string }> {
+  async healthCheck(): Promise<ProviderHealth> {
     return this.healthy ? { healthy: true } : { healthy: false, reason: `${this.name} unavailable` };
   }
 
@@ -361,6 +361,16 @@ export class MockProvider extends StubProvider {
       baseCostPer1kTokens: 0,
       baseLatencyMs: 10
     });
+  }
+
+  async runInference(task: AiTask): Promise<InferenceResult> {
+    return {
+      output: `[deterministic-${this.name}] ${task.id}`,
+      provider: this.name,
+      model: `${this.name}-default-model`,
+      latencyMs: 10,
+      costUsd: 0
+    };
   }
 }
 

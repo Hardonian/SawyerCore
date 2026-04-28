@@ -14,7 +14,9 @@
     "verify:config": "vitest run tests/config/config-init.test.ts",
     "verify:recommendations": "vitest run tests/runtime/onboarding-recommendation.test.ts",
     "sawyer:init": "tsx src/cli/sawyer-init.ts",
-    "sawyer:doctor": "tsx src/cli/sawyer-doctor.ts"
+    "sawyer:doctor": "tsx src/cli/sawyer-doctor.ts",
+    "verify:rust": "bash ./scripts/verify-rust-only.sh",
+    "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json"
   },
   "engines": {
     "node": ">=20"
@@ -30,5 +32,6 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^3.1.2"
-  }
+  },
+  "packageManager": "npm@10.9.2"
 }

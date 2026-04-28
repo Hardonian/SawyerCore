@@ -22,7 +22,12 @@ export interface AuditLoggerOptions {
   rotateBytes?: number;
 }
 
-export class AuditLogger {
+interface AuditSink {
+  write(event: AuditEvent): void;
+  read(): AuditEvent[];
+}
+
+export class InMemoryAuditSink implements AuditSink {
   private readonly events: AuditEvent[] = [];
   private readonly filePath?: string;
   private readonly rotateBytes: number;
@@ -49,7 +54,41 @@ export class AuditLogger {
     appendFileSync(this.filePath, `${JSON.stringify(withTimestamp)}\n`, { encoding: 'utf8' });
   }
 
-  list(): AuditEvent[] {
+  read(): AuditEvent[] {
     return [...this.events];
+  }
+}
+
+export class JsonlAuditSink implements AuditSink {
+  constructor(private readonly path = '.sawyer-audit.jsonl') {}
+
+  write(event: AuditEvent): void {
+    appendFileSync(this.path, `${JSON.stringify(event)}\n`, 'utf8');
+  }
+
+  read(): AuditEvent[] {
+    return [];
+  }
+}
+
+function sanitize(event: AuditEvent): AuditEvent {
+  return {
+    ...event,
+    deniedProviders: event.deniedProviders.map((item) => ({
+      provider: item.provider,
+      reason: item.reason.replace(/(api[_-]?key|token|secret)=\S+/gi, '$1=[redacted]')
+    }))
+  };
+}
+
+export class AuditLogger {
+  constructor(private readonly sink: AuditSink = new InMemoryAuditSink()) {}
+
+  log(event: AuditEvent): void {
+    this.sink.write(sanitize(event));
+  }
+
+  list(): AuditEvent[] {
+    return this.sink.read();
   }
 }

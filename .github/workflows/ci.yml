@@ -12,5 +12,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Verify
-        run: make verify
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install JS dependencies
+        run: npm ci
+      - name: Rust fmt
+        run: cargo fmt --all --check
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust test
+        run: cargo test --workspace
+      - name: Rust build
+        run: cargo build --workspace
+      - name: Lint TS
+        run: npm run lint
+      - name: Verify AI runtime (mocked)
+        run: npm run verify:ai
+      - name: Verify policy
+        run: npm run verify:policy
+      - name: Verify runtime
+        run: npm run verify:runtime
+      - name: Verify config
+        run: npm run verify:config
+      - name: Verify recommendations
+        run: npm run verify:recommendations
