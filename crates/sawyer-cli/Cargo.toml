@@ -32,6 +32,8 @@ sawyer-kernels = { path = "../sawyer-kernels" }
 sawyer-llm = { path = "../sawyer-llm" }
 sawyer-server = { path = "../sawyer-server", optional = true }
 sawyer-sim = { path = "../sawyer-sim" }
+sawyer-history = { path = "../sawyer-history" }
+sawyer-telemetry = { path = "../sawyer-telemetry" }
 
 [[bin]]
 name = "sawyer"

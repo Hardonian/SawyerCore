@@ -6,6 +6,7 @@ export interface PolicyContext {
   tenantId: string;
   model: string;
   requestedTokens: number;
+  providerHealthy?: boolean;
 }
 
 export interface PolicyDecision {
@@ -20,6 +21,10 @@ export class PolicyEngine {
     const reasons: string[] = [];
     if (!this.policy) {
       return { allowed: false, reasons: ['missing policy: fail closed'] };
+    }
+
+    if (ctx.providerHealthy === false) {
+      reasons.push('provider unhealthy');
     }
 
     const tenantPerm = this.policy.tenantPermissions[ctx.tenantId];
@@ -53,10 +58,9 @@ export class PolicyEngine {
         reasons.push('private/sensitive data cannot route to cloud');
       }
       if (task.privacyRequirement === 'local-only') reasons.push('task requires local-only execution');
+      if (!task.fallbackAllowed) reasons.push('task fallback disabled');
+      if (!this.policy.fallbackAllowed) reasons.push('policy fallback disabled');
     }
-
-    if (!task.fallbackAllowed && cloudLike) reasons.push('task fallback disabled');
-    if (!this.policy.fallbackAllowed && cloudLike) reasons.push('policy fallback disabled');
 
     return { allowed: reasons.length === 0, reasons };
   }

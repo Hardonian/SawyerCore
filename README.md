@@ -1,45 +1,40 @@
 # SawyerCore
 
-Production-oriented deterministic edge AI runtime + governance engine.
+SawyerCore is a local-first AI runtime that decides where an AI task should run safely.
 
-## Verification-first quickstart
-
-```bash
-npm install
-npm run sawyer:init -- --auto
-npm run sawyer:doctor
-npm run verify:ai
-npm run verify:policy
-npm run verify:runtime
-npm run verify:config
-npm run verify:recommendations
-```
-
-Rust-first fallback when Node tooling is unavailable:
+## One-command start
 
 ```bash
-./scripts/verify-rust-only.sh
+cargo run -p sawyer-cli -- quickstart
 ```
 
-## Runtime truth states
+Then launch:
 
-### IMPLEMENTED
-- Deterministic task routing through contract -> policy -> provider health -> optimizer -> provider call -> audit event.
-- Real bounded HTTP transport scaffolding for vLLM/LiteLLM (`GET /v1/models`, `POST /v1/chat/completions`, timeout + retry budget).
-- `sawyer:doctor` table + `--json` output with nonzero exit only on invalid/unsafe config.
-- Append-only local JSONL audit sink + in-memory sink for tests.
+```bash
+cargo run -p sawyer-cli -- up
+```
 
-### CONFIG-DEPENDENT
-- Live endpoint reachability and model discovery.
-- Provider enablement, fallback policy, token/cost limits, and request size caps.
+## What you get
 
-### STUBBED
-- ONNX and Mobile NPU execution backends remain architecture stubs.
+- Deterministic routing with explicit degraded states.
+- Cloud disabled by default (local-safe posture).
+- Runtime modes (`tiny`, `local`, `performance`, `gateway`, `dev`).
+- Provider comparison with real localhost availability checks.
+- Explainability output for the latest routing decision (`sawyer explain last` / `GET /explain/last`).
 
-### FUTURE
-- Full production model adapters and richer runtime telemetry.
+## Mode commands
 
-## Key guarantees
-- Fail-closed policy enforcement for unsafe/invalid config.
-- No cloud fallback by default.
-- Truthful degraded states over fake success.
+```bash
+cargo run -p sawyer-cli -- mode list
+cargo run -p sawyer-cli -- mode explain tiny
+cargo run -p sawyer-cli -- mode set tiny
+cargo run -p sawyer-cli -- mode current
+```
+
+## Beginner docs
+
+- [Quickstart](docs/quickstart.md)
+- [Concepts](docs/concepts.md)
+- [Modes](docs/modes.md)
+- [Model sizing](docs/model-sizing.md)
+- [Single-binary deploy](docs/deploy/single-binary.md)

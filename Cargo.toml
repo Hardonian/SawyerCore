@@ -8,6 +8,8 @@ members = [
   "crates/sawyer-sim",
   "crates/sawyer-server",
   "crates/sawyer-cli",
+  "crates/sawyer-telemetry",
+  "crates/sawyer-history",
 ]
 resolver = "2"
 

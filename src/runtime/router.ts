@@ -25,9 +25,14 @@ export class SawyerRouter {
     this.policyEngine = new PolicyEngine(config.policy);
   }
 
-  async route(task: AiTask, tenantId: string, signals: RoutingSignals): Promise<RoutingResult> {
+  async route(
+    task: AiTask,
+    tenantId: string,
+    signals: RoutingSignals,
+    requestId = `${task.id}-${Date.now()}`
+  ): Promise<{ decision: RoutingDecision; result?: InferenceResult; reasons: string[]; degraded?: boolean }> {
     const denied: Array<{ provider: string; reason: string }> = [];
-    const scored: Array<{ provider: RuntimeProvider; score: number }> = [];
+    const scored: Array<{ provider: RuntimeProvider; score: number; breakdown: Record<string, number> }> = [];
 
     for (const provider of this.providers) {
       const health = await provider.healthCheck();
@@ -35,24 +40,28 @@ export class SawyerRouter {
         denied.push({ provider: provider.name, reason: health.reason ?? 'unhealthy' });
         continue;
       }
-
+      const model = provider.name === 'vllm' ? this.config.providers.vllm.model : provider.name;
       const policyDecision = this.policyEngine.evaluate(task, provider, {
         tenantId,
-        model: `${provider.name}-default-model`,
-        requestedTokens: task.maxContextTokens
+        model,
+        requestedTokens: task.maxContextTokens,
+        providerHealthy: health.healthy
       });
 
       if (!policyDecision.allowed) {
         denied.push({ provider: provider.name, reason: policyDecision.reasons.join('; ') });
         continue;
       }
-
-      scored.push({ provider, score: this.optimizer.score(task, provider, signals) });
+      const scoring = this.optimizer.score(task, provider, signals);
+      scored.push({ provider, score: scoring.total, breakdown: scoring.breakdown });
     }
 
-    scored.sort((a, b) => b.score - a.score);
-    if (scored.length === 0) {
+    scored.sort((a, b) => b.score - a.score || a.provider.name.localeCompare(b.provider.name));
+
+    const chosen = scored[0];
+    if (!chosen) {
       this.audit.log({
+        requestId,
         taskId: task.id,
         requestedTask: task.type,
         selectedProvider: 'DENY',
@@ -62,40 +71,40 @@ export class SawyerRouter {
         degradedState: 'no providers available',
         status: 'denied'
       });
-      return { decision: 'DENY', reasons: denied.map((d) => `${d.provider}: ${d.reason}`) };
+      return { decision: 'DENY', reasons: denied.map((d) => `${d.provider}: ${d.reason}`), degraded: true };
     }
 
-    for (const candidate of scored) {
-      try {
-        const result = await candidate.provider.runInference(task);
-        this.audit.log({
-          taskId: task.id,
-          requestedTask: task.type,
-          selectedProvider: candidate.provider.name,
-          deniedProviders: denied,
-          costEstimateUsd: candidate.provider.estimateCost(task),
-          latencyEstimateMs: candidate.provider.estimateLatency(task),
-          policyDecision: 'allow',
-          fallbackPath: scored.map((s) => s.provider.name),
-          status: 'success'
-        });
-        return { decision: candidate.provider.target, result, reasons: [] };
-      } catch (error) {
-        denied.push({ provider: candidate.provider.name, reason: (error as Error).message });
-      }
+    try {
+      const result = await chosen.provider.runInference(task);
+      this.audit.log({
+        requestId,
+        taskId: task.id,
+        requestedTask: task.type,
+        selectedProvider: chosen.provider.name,
+        deniedProviders: denied,
+        costEstimateUsd: chosen.provider.estimateCost(task),
+        latencyEstimateMs: chosen.provider.estimateLatency(task),
+        policyDecision: 'allow',
+        scoringBreakdown: chosen.breakdown,
+        fallbackPath: scored.map((s) => s.provider.name),
+        status: 'success'
+      });
+      return { decision: chosen.provider.target, result, reasons: [] };
+    } catch (error) {
+      const reason = `inference failed: ${(error as Error).message}`;
+      this.audit.log({
+        requestId,
+        taskId: task.id,
+        requestedTask: task.type,
+        selectedProvider: chosen.provider.name,
+        deniedProviders: [...denied, { provider: chosen.provider.name, reason }],
+        policyDecision: 'deny',
+        scoringBreakdown: chosen.breakdown,
+        fallbackPath: scored.map((s) => s.provider.name),
+        degradedState: reason,
+        status: 'failed'
+      });
+      return { decision: 'DENY', reasons: [reason], degraded: true };
     }
-
-    this.audit.log({
-      taskId: task.id,
-      requestedTask: task.type,
-      selectedProvider: 'DENY',
-      deniedProviders: denied,
-      policyDecision: 'deny',
-      fallbackPath: scored.map((s) => s.provider.name),
-      degradedState: 'providers failed at runtime',
-      status: 'failed'
-    });
-
-    return { decision: 'DENY', reasons: denied.map((d) => `${d.provider}: ${d.reason}`) };
   }
 }
