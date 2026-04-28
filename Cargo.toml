@@ -1,0 +1,31 @@
+[workspace]
+members = [
+  "crates/sawyer-core",
+  "crates/sawyer-scheduler",
+  "crates/sawyer-memory",
+  "crates/sawyer-kernels",
+  "crates/sawyer-llm",
+  "crates/sawyer-sim",
+  "crates/sawyer-server",
+  "crates/sawyer-cli",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+authors = ["SawyerCore Contributors"]
+repository = "https://github.com/example/SawyerCore"
+
+[workspace.dependencies]
+anyhow = "1.0"
+axum = { version = "0.8", features = ["json"] }
+clap = { version = "4.5", features = ["derive"] }
+criterion = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
