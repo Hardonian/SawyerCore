@@ -1,0 +1,19 @@
+[package]
+name = "sawyer-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sawyer-kernels = { path = "../sawyer-kernels" }
+sawyer-memory = { path = "../sawyer-memory" }
+sawyer-scheduler = { path = "../sawyer-scheduler" }
+serde.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+sawyer-sim = { path = "../sawyer-sim" }
+
+[[bench]]
+name = "microbench"
+harness = false
