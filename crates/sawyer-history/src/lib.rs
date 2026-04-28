@@ -1,6 +1,5 @@
 //! Deterministic adaptive history, profiling, and explainability.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use sawyer_telemetry::{DeviceProfileSnapshot, RequestTelemetry};
@@ -245,6 +244,7 @@ impl HistoryIndex {
             .map(|row| row.0)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn score_provider(
         &self,
         config: &AdaptiveConfig,

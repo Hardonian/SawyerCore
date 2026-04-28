@@ -1,12 +1,17 @@
-use std::path::PathBuf;
+use std::{
+    fs::{self, OpenOptions},
+    io::{Read, Write},
+    net::TcpStream,
+    path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
+};
 
-use anyhow::Result;
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use sawyer_core::{DeterministicRuntime, RuntimeConfig};
-use sawyer_kernels::{detect_cpu_features, dot_product, summarize_cpu_execution_path};
 use sawyer_server::{serve, SecurityConfig, ServerState};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
-use sawyer_telemetry::{RequestTelemetry, TelemetryConfig, TelemetryEngine};
 
 #[derive(Parser)]
 #[command(
@@ -21,65 +26,16 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Doctor,
-    Bench(BenchArgs),
-    Calibrate,
-    Stats(StatsArgs),
-    Explain(ExplainArgs),
-    Sim(SimArgs),
     Serve(ServeArgs),
+    Sim(SimArgs),
     Models(ModelsArgs),
-}
-
-#[derive(Args)]
-struct BenchArgs {
-    #[command(subcommand)]
-    command: BenchCommands,
-}
-
-#[derive(Subcommand)]
-enum BenchCommands {
-    Quick,
-    Compare,
-}
-
-#[derive(Args)]
-struct ExplainArgs {
-    #[command(subcommand)]
-    command: ExplainCommands,
-}
-
-#[derive(Subcommand)]
-enum ExplainCommands {
-    Adaptive,
-}
-
-#[derive(Args)]
-struct StatsArgs {
-    #[command(subcommand)]
-    command: StatsCommands,
-}
-
-#[derive(Subcommand)]
-enum StatsCommands {
-    Providers,
-    Tasks,
-    Failures,
-}
-
-#[derive(Args)]
-struct SimArgs {
-    #[command(subcommand)]
-    command: SimCommands,
-}
-
-#[derive(Subcommand)]
-enum SimCommands {
-    Run,
+    FirstRun(FirstRunArgs),
+    Smoke(SmokeArgs),
 }
 
 #[derive(Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "127.0.0.1:8080")]
+    #[arg(long, default_value = "127.0.0.1:8090")]
     bind: String,
     #[arg(long, default_value_t = false)]
     allow_lan: bool,
@@ -104,6 +60,17 @@ struct ServeArgs {
 }
 
 #[derive(Args)]
+struct SimArgs {
+    #[command(subcommand)]
+    command: SimCommands,
+}
+
+#[derive(Subcommand)]
+enum SimCommands {
+    Run,
+}
+
+#[derive(Args)]
 struct ModelsArgs {
     #[command(subcommand)]
     command: ModelsCommands,
@@ -111,427 +78,119 @@ struct ModelsArgs {
 
 #[derive(Subcommand)]
 enum ModelsCommands {
-    List,
+    Recommend,
+    Download {
+        model_id: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    Verify {
+        model_id: String,
+    },
+    ListLocal,
+    Remove {
+        model_id: String,
+    },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, clap::ValueEnum, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-enum RuntimeMode {
-    Tiny,
-    Local,
-    Performance,
-    Gateway,
-    Dev,
+#[derive(Args)]
+struct FirstRunArgs {
+    #[arg(long, default_value = "./.sawyer/config.toml")]
+    config: PathBuf,
 }
 
-impl RuntimeMode {
-    fn description(self) -> &'static str {
-        match self {
-            Self::Tiny => "CPU-only minimal footprint; local HTTP/llama.cpp when available; no vLLM/LiteLLM",
-            Self::Local => "Safe default: local-first with optional vLLM/LiteLLM checks; cloud disabled",
-            Self::Performance => "GPU/server oriented: vLLM preferred, higher memory budget, preloading enabled",
-            Self::Gateway => "LiteLLM proxy eligible, but local routes first and cloud disabled unless explicitly enabled",
-            Self::Dev => "Verbose diagnostics for local development; no production runtime mocks",
-        }
-    }
-
-    fn explain(self) -> String {
-        format!("{} => {}", self, self.description())
-    }
-
-    fn all() -> &'static [RuntimeMode] {
-        const MODES: [RuntimeMode; 5] = [
-            RuntimeMode::Tiny,
-            RuntimeMode::Local,
-            RuntimeMode::Performance,
-            RuntimeMode::Gateway,
-            RuntimeMode::Dev,
-        ];
-        &MODES
-    }
+#[derive(Args)]
+struct SmokeArgs {
+    #[command(subcommand)]
+    command: SmokeCommands,
 }
 
-impl fmt::Display for RuntimeMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::Tiny => "tiny",
-            Self::Local => "local",
-            Self::Performance => "performance",
-            Self::Gateway => "gateway",
-            Self::Dev => "dev",
-        };
-        write!(f, "{label}")
-    }
+#[derive(Subcommand)]
+enum SmokeCommands {
+    Local {
+        #[arg(long, default_value = "./.sawyer/config.toml")]
+        config: PathBuf,
+    },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct HardwareSnapshot {
-    os: String,
-    ram_gb: Option<u64>,
-    vram_gb: Option<u64>,
-    battery_sensitive: bool,
-    thermal_constrained: bool,
+#[derive(Debug)]
+struct ModelCatalog {
+    models: Vec<ModelEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModelRecommendation {
-    model_class: &'static str,
-    quantization: &'static str,
-    performance_band: &'static str,
-    provider: &'static str,
-    reason: String,
+#[derive(Debug)]
+struct ModelEntry {
+    id: String,
+    source_url: String,
+    expected_sha256: String,
+    size_bytes: u64,
+    license: String,
+    recommended_ram_gb: u64,
+    recommended_provider: String,
+    context_limit: usize,
+    task_suitability: Vec<String>,
+    default_local_path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ProviderRow {
-    provider: &'static str,
-    available: bool,
-    best_for: &'static str,
-    cost: &'static str,
-    privacy: &'static str,
-    speed: &'static str,
-    setup: &'static str,
-    reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RoutingExplain {
-    selected_provider: String,
-    rejected_providers: Vec<String>,
-    reason_codes: Vec<String>,
-    privacy_decision: String,
-    cost_decision: String,
-    speed_decision: String,
-    fallback_decision: String,
-    degraded: bool,
+struct LocalConfig {
+    router_url: String,
+    provider_url: String,
+    model_id: String,
+    model_path: String,
+    audit_log_path: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
-
     match cli.command {
         Commands::Doctor => doctor(),
-        Commands::Bench(args) => match args.command {
-            BenchCommands::Quick => bench_quick(),
-            BenchCommands::Compare => bench_compare(),
-        },
-        Commands::Calibrate => calibrate(),
-        Commands::Stats(args) => stats(args),
-        Commands::Explain(args) => match args.command {
-            ExplainCommands::Adaptive => explain_adaptive(),
-        },
+        Commands::Serve(args) => serve_cmd(args).await,
         Commands::Sim(sim) => match sim.command {
             SimCommands::Run => sim_run(),
         },
-        Commands::Serve(args) => {
-            if args.unsafe_dev {
-                eprintln!("\n⚠️⚠️⚠️  UNSAFE DEV MODE ENABLED -- PRODUCTION SAFETY GUARDS ARE RELAXED ⚠️⚠️⚠️\n");
-            }
-            let security = SecurityConfig {
-                bind_host: args
-                    .bind
-                    .split(':')
-                    .next()
-                    .unwrap_or("127.0.0.1")
-                    .to_string(),
-                allow_lan: args.allow_lan,
-                require_node_token: true,
-                max_request_bytes: args.max_request_bytes,
-                max_context_tokens: args.max_context_tokens,
-                allow_cloud: args.allow_cloud,
-                private_mode: args.private_mode,
-                redact_logs: args.redact_logs,
-                audit_log_path: args.audit_log_path,
-                rate_limit_per_minute: args.rate_limit_per_minute,
-            };
-            let state = ServerState::with_security(
-                security,
-                args.node_token,
-                std::env::var("SAWYER_CLOUD_API_KEY").is_ok(),
-            );
-
-            println!("starting server on {}", args.bind);
-            serve(&args.bind, state, args.unsafe_dev).await
-        }
-        Commands::Models(models) => match models.command {
-            ModelsCommands::List => models_list(),
+        Commands::Models(args) => models(args),
+        Commands::FirstRun(args) => first_run(args),
+        Commands::Smoke(args) => match args.command {
+            SmokeCommands::Local { config } => smoke_local(&config),
         },
     }
 }
 
-fn mode(args: ModeArgs) -> Result<()> {
-    match args.command {
-        ModeCommands::List => {
-            for mode in RuntimeMode::all() {
-                println!("{mode:11} {}", mode.description());
-            }
-            Ok(())
-        }
-        ModeCommands::Explain { mode } => {
-            println!("{}", mode.explain());
-            Ok(())
-        }
-        ModeCommands::Set { mode } => {
-            save_mode(mode)?;
-            println!("mode set to {mode}");
-            Ok(())
-        }
-        ModeCommands::Current => {
-            println!("{}", load_mode()?);
-            Ok(())
-        }
-    }
-}
-
-fn doctor(args: DoctorArgs) -> Result<()> {
-    match args.command {
-        Some(DoctorCommands::Deps) => doctor_deps(),
-        None => {
-            let cpu = detect_cpu_features();
-            let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
-            runtime.step();
-            println!("Sawyer doctor report");
-            println!("- tick: {}", runtime.tick());
-            println!(
-                "- CPU avx2={} avx512f={} neon={}",
-                cpu.avx2, cpu.avx512f, cpu.neon
-            );
-            println!("- mode: {}", load_mode()?);
-            Ok(())
-        }
-    }
-}
-
-fn doctor_deps() -> Result<()> {
-    let deps = [
-        ("rust", true, "required"),
-        (
-            "llama.cpp",
-            port_open("127.0.0.1:8081"),
-            "optional provider",
-        ),
-        ("vLLM", port_open("127.0.0.1:8000"), "optional provider"),
-        ("LiteLLM", port_open("127.0.0.1:4000"), "optional provider"),
-        ("node/npm", false, "not required for single-binary runtime"),
-    ];
-    println!("Dependency | Status | Type");
-    println!("-----------|--------|-----");
-    for (dep, ok, kind) in deps {
-        let status = if ok { "present" } else { "missing/disabled" };
-        println!("{dep:10} | {status:14} | {kind}");
-    }
+fn doctor() -> Result<()> {
+    let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
+    runtime.step();
+    println!("Sawyer doctor report");
+    println!("- tick: {}", runtime.tick());
+    println!("- state_dir: {}", state_dir().display());
     Ok(())
 }
 
-fn bench(args: BenchArgs) -> Result<()> {
-    match args.command.unwrap_or(BenchCommands::Quick) {
-        BenchCommands::Quick => bench_quick(),
-        BenchCommands::Compare => bench_compare(),
-    }
-}
-
-fn bench_quick() -> Result<()> {
-    let mut out = Vec::new();
-
-    let queue_start = Instant::now();
-    let mut events = Vec::with_capacity(10_000);
-    for i in 0..10_000 {
-        events.push(i);
-    }
-    let queue_elapsed = queue_start.elapsed();
-    out.push((
-        "event_queue_ops_per_sec",
-        10_000_f64 / queue_elapsed.as_secs_f64(),
-    ));
-
-    let reset_start = Instant::now();
-    events.clear();
-    let reset_elapsed = reset_start.elapsed();
-    out.push(("arena_reset_ns", reset_elapsed.as_nanos() as f64));
-
-    let lhs = vec![1.0_f32; 1024];
-    let rhs = vec![2.0_f32; 1024];
-    let dot_start = Instant::now();
-    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
-    let dot_elapsed = dot_start.elapsed();
-    out.push(("scalar_dot_ns", dot_elapsed.as_nanos() as f64));
-
-    out.push(("provider_health_llama_ms", latency_ms("127.0.0.1:8081")));
-    out.push(("provider_health_vllm_ms", latency_ms("127.0.0.1:8000")));
-    out.push(("provider_health_litellm_ms", latency_ms("127.0.0.1:4000")));
-
-    println!("bench quick (measured values only)");
-    println!("dot_product_value={dot}");
-    for (name, value) in out {
-        println!("{name}={value:.2}");
-    }
-    println!("recommendation=use measured provider latency + mode policy; no synthetic claims");
-    Ok(())
-}
-
-fn bench_compare() -> Result<()> {
-    println!("provider | health_latency_ms");
-    println!("llama.cpp | {:.2}", latency_ms("127.0.0.1:8081"));
-    println!("vllm | {:.2}", latency_ms("127.0.0.1:8000"));
-    println!("litellm | {:.2}", latency_ms("127.0.0.1:4000"));
-    Ok(())
-}
-
-fn quickstart() -> Result<()> {
-    let mode = load_mode()?;
-    let hw = detect_hardware();
-    let rec = recommend_model(&hw, "general");
-    let compare = comparison(mode);
-
-    println!("SawyerCore is a local-first AI runtime.");
-    println!("It routes tasks deterministically with policy and audit visibility.");
-    println!("Cloud is disabled by default; local providers are preferred.");
-    println!("If no model is available, Sawyer stays truthful with degraded status.");
-    println!("Current mode: {mode}");
-    println!(
-        "Recommended model: {} {}",
-        rec.model_class, rec.quantization
+async fn serve_cmd(args: ServeArgs) -> Result<()> {
+    let security = SecurityConfig {
+        bind_host: args
+            .bind
+            .split(':')
+            .next()
+            .unwrap_or("127.0.0.1")
+            .to_string(),
+        allow_lan: args.allow_lan,
+        require_node_token: true,
+        max_request_bytes: args.max_request_bytes,
+        max_context_tokens: args.max_context_tokens,
+        allow_cloud: args.allow_cloud,
+        private_mode: args.private_mode,
+        redact_logs: args.redact_logs,
+        audit_log_path: args.audit_log_path,
+        rate_limit_per_minute: args.rate_limit_per_minute,
+    };
+    let state = ServerState::with_security(
+        security,
+        args.node_token,
+        std::env::var("SAWYER_CLOUD_API_KEY").is_ok(),
     );
-    println!("- execution path: {}", summarize_cpu_execution_path(cpu));
-    Ok(())
-}
-
-fn bench_quick() -> Result<()> {
-    let lhs = vec![1.0_f32; 256];
-    let rhs = vec![2.0_f32; 256];
-    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
-    println!("bench smoke: dot_product={dot}");
-    println!("for full benches run: cargo bench -p sawyer-core");
-    Ok(())
-}
-
-fn calibrate() -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
-    let providers = history.metrics_per_provider();
-
-    println!("calibration profile");
-    println!("- telemetry_file={}", telemetry_path.display());
-    println!("- providers_seen={}", providers.len());
-    for (provider, metrics) in providers {
-        println!(
-            "- provider={} p50_ms={} p95_ms={} throughput_rps={:.2}",
-            provider, metrics.p50_latency_ms, metrics.p95_latency_ms, metrics.throughput_rps
-        );
-    }
-    Ok(())
-}
-
-fn stats(args: StatsArgs) -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
-
-    match args.command {
-        StatsCommands::Providers => {
-            for (provider, metrics) in history.metrics_per_provider() {
-                println!(
-                    "{} samples={} avg_ms={} p50={} p95={} success={:.2} fail={:.2} timeout={:.2}",
-                    provider,
-                    metrics.samples,
-                    metrics.avg_latency_ms,
-                    metrics.p50_latency_ms,
-                    metrics.p95_latency_ms,
-                    metrics.success_rate,
-                    metrics.failure_rate,
-                    metrics.timeout_rate
-                );
-            }
-        }
-        StatsCommands::Tasks => {
-            for (task, summary) in history.task_summaries() {
-                println!(
-                    "{} best={} worst={}",
-                    task, summary.best_provider, summary.worst_provider
-                );
-            }
-        }
-        StatsCommands::Failures => {
-            for (provider, metrics) in history.metrics_per_provider() {
-                if metrics.failure_rate > 0.0 {
-                    println!(
-                        "{} fail_rate={:.2} timeout_rate={:.2}",
-                        provider, metrics.failure_rate, metrics.timeout_rate
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn explain_adaptive() -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
-
-    let explain = history.explain_adaptive("llama.cpp", "chat", &AdaptiveConfig::default());
-    println!("adaptive explanation");
-    println!("- changed={}", explain.changed);
-    println!("- what_changed={}", explain.what_changed);
-    println!("- why={}", explain.why);
-    println!("- telemetry_basis={}", explain.telemetry_basis);
-    println!("- confidence={:.2}", explain.confidence);
-    Ok(())
-}
-
-fn load_mode() -> Result<RuntimeMode> {
-    let path = state_dir().join(MODE_FILE);
-    if !path.exists() {
-        return Ok(DEFAULT_MODE);
-    }
-    let mode = fs::read_to_string(path)?.trim().to_string();
-    parse_mode(&mode).with_context(|| format!("invalid saved mode value: {mode}"))
-}
-
-fn parse_mode(input: &str) -> Result<RuntimeMode> {
-    match input {
-        "tiny" => Ok(RuntimeMode::Tiny),
-        "local" => Ok(RuntimeMode::Local),
-        "performance" => Ok(RuntimeMode::Performance),
-        "gateway" => Ok(RuntimeMode::Gateway),
-        "dev" => Ok(RuntimeMode::Dev),
-        _ => anyhow::bail!("unsupported mode: {input}"),
-    }
-}
-
-fn port_open(addr: &str) -> bool {
-    match addr.parse::<SocketAddr>() {
-        Ok(socket) => TcpStream::connect_timeout(&socket, Duration::from_millis(80)).is_ok(),
-        Err(_) => false,
-    }
-}
-
-fn latency_ms(addr: &str) -> f64 {
-    match addr.parse::<SocketAddr>() {
-        Ok(socket) => {
-            let start = Instant::now();
-            if TcpStream::connect_timeout(&socket, Duration::from_millis(300)).is_ok() {
-                start.elapsed().as_secs_f64() * 1000.0
-            } else {
-                -1.0
-            }
-        }
-        Err(_) => -1.0,
-    }
+    println!("starting server on {}", args.bind);
+    serve(&args.bind, state, args.unsafe_dev).await
 }
 
 fn sim_run() -> Result<()> {
@@ -541,56 +200,458 @@ fn sim_run() -> Result<()> {
         agent_id: 1,
         payload: "start".into(),
     });
-    runner.push_event(SimEvent {
-        tick: 2,
-        agent_id: 1,
-        payload: "step".into(),
-    });
-
     let mut agents = vec![Agent::new(1)];
     let (replay, metrics) = runner.run(&mut agents);
-
-    let mut telemetry = TelemetryEngine::new(TelemetryConfig {
-        jsonl_path: default_telemetry_path(),
-        rolling_window_size: 100,
-        archive_path: None,
-    })?;
-    telemetry.record(RequestTelemetry {
-        request_id: format!("sim-{}", replay.seed),
-        timestamp_ms: replay.seed,
-        task_type: "simulation".to_string(),
-        input_size: replay.events.len(),
-        selected_provider: "sim-local".to_string(),
-        rejected_providers: vec![],
-        latency_ms: metrics.latency_ms as u64,
-        cost_usd_micros: Some(0),
-        success: true,
-        degraded: false,
-        timeout: false,
-        tokens_used: None,
-        memory_snapshot: None,
-        device_profile: None,
-    })?;
-
-    println!("sim run complete");
-    println!("- seed: {}", replay.seed);
-    println!("- events: {}", replay.events.len());
-    println!("- latency_ms: {}", metrics.latency_ms);
-    println!("- events_per_sec: {:.2}", metrics.events_per_sec);
+    println!(
+        "sim run complete seed={} events={} eps={:.2}",
+        replay.seed,
+        replay.events.len(),
+        metrics.events_per_sec
+    );
     Ok(())
 }
 
-fn models_list() -> Result<()> {
-    let state = ServerState::default();
-    for model in &state.registry.models {
+fn models(args: ModelsArgs) -> Result<()> {
+    match args.command {
+        ModelsCommands::Recommend => models_recommend(),
+        ModelsCommands::Download { model_id, yes } => models_download(&model_id, yes),
+        ModelsCommands::Verify { model_id } => models_verify(&model_id),
+        ModelsCommands::ListLocal => models_list_local(),
+        ModelsCommands::Remove { model_id } => models_remove(&model_id),
+    }
+}
+
+fn models_recommend() -> Result<()> {
+    let ram = detect_ram_gb();
+    let pack = if ram <= 6 {
+        "tiny"
+    } else if ram <= 12 {
+        "balanced"
+    } else if ram <= 32 {
+        "quality-local"
+    } else {
+        "workstation"
+    };
+    println!("Recommended model pack: {pack} (detected RAM: {} GB)", ram);
+    println!("Next: sawyer models list-local || sawyer models download <model-id> --yes");
+    Ok(())
+}
+
+fn models_download(model_id: &str, yes: bool) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    if !model.source_url.starts_with("https://") {
+        bail!("refusing insecure URL for {model_id}; HTTPS is required");
+    }
+    if model.expected_sha256.len() != 64 {
+        bail!("model {model_id} missing valid checksum metadata");
+    }
+    println!("Model license: {}", model.license);
+    if !yes {
+        println!("Refusing auto-download without explicit consent.");
+        println!("Re-run with: sawyer models download {model_id} --yes");
+        return Ok(());
+    }
+
+    let path = PathBuf::from(&model.default_local_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let status = Command::new("curl")
+        .args([
+            "--fail",
+            "--location",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "-o",
+        ])
+        .arg(&path)
+        .arg(&model.source_url)
+        .status()
+        .context("failed to execute curl; install curl and retry")?;
+
+    if !status.success() {
+        bail!("download failed for {model_id}; check network and URL");
+    }
+
+    let actual = sha256_file(&path)?;
+    if actual != model.expected_sha256 {
+        let _ = fs::remove_file(&path);
+        bail!(
+            "checksum mismatch for {model_id}; file deleted (expected {}, got {})",
+            model.expected_sha256,
+            actual
+        );
+    }
+    println!("Downloaded and verified {} at {}", model_id, path.display());
+    Ok(())
+}
+
+fn models_verify(model_id: &str) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if !path.exists() {
+        bail!(
+            "MODEL_MISSING: {}\nNext: sawyer models download {} --yes",
+            path.display(),
+            model_id
+        );
+    }
+    let actual = sha256_file(&path)?;
+    if actual != model.expected_sha256 {
+        bail!("checksum mismatch for {model_id}");
+    }
+    println!("verified {}", model_id);
+    Ok(())
+}
+
+fn models_list_local() -> Result<()> {
+    let catalog = load_model_catalog()?;
+    for model in catalog.models {
+        let exists = Path::new(&model.default_local_path).exists();
         println!(
-            "{} backend={} available={} status={}",
-            model.id, model.backend, model.available, model.status
+            "{} path={} present={} provider={} ctx={} size_bytes={} ram_gb={} tasks={}",
+            model.id,
+            model.default_local_path,
+            exists,
+            model.recommended_provider,
+            model.context_limit,
+            model.size_bytes,
+            model.recommended_ram_gb,
+            model.task_suitability.join(",")
         );
     }
     Ok(())
 }
 
-fn default_telemetry_path() -> PathBuf {
-    PathBuf::from("./var/telemetry/requests.jsonl")
+fn models_remove(model_id: &str) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if path.exists() {
+        fs::remove_file(&path)?;
+        println!("removed {}", path.display());
+    } else {
+        println!("nothing to remove; {} missing", path.display());
+    }
+    Ok(())
+}
+
+fn first_run(args: FirstRunArgs) -> Result<()> {
+    let ram = detect_ram_gb();
+    let arch = std::env::consts::ARCH;
+    let os = std::env::consts::OS;
+    let pack = if ram <= 6 {
+        "tiny"
+    } else if ram <= 12 {
+        "balanced"
+    } else if ram <= 32 {
+        "quality-local"
+    } else {
+        "workstation"
+    };
+    let mode = if pack == "tiny" {
+        "local-tiny"
+    } else {
+        "local-balanced"
+    };
+
+    write_local_config(&args.config, mode)?;
+    let provider_ok = http_health("127.0.0.1", 8080, "/health");
+
+    println!("1. Your device: os={os} arch={arch} ram_gb={ram}");
+    println!("2. Recommended mode: {mode}");
+    println!("3. Recommended model: {pack}");
+    println!("4. Provider status: llama.cpp@127.0.0.1:8080 reachable={provider_ok}");
+    if let Ok(cfg) = parse_local_config(&args.config) {
+        if Path::new(&cfg.model_path).exists() {
+            println!(
+                "5. Next command: sawyer smoke local --config {}",
+                args.config.display()
+            );
+        } else {
+            println!(
+                "5. Next command: sawyer models download {} --yes",
+                cfg.model_id
+            );
+        }
+    }
+    Ok(())
+}
+
+fn smoke_local(config_path: &Path) -> Result<()> {
+    let cfg = parse_local_config(config_path)?;
+    if !Path::new(config_path).exists() {
+        bail!("config missing: {}", config_path.display());
+    }
+    if let Some(parent) = Path::new(&cfg.audit_log_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&cfg.audit_log_path)
+        .with_context(|| format!("audit log not writable: {}", cfg.audit_log_path))?;
+
+    let provider_addr = parse_host_port(&cfg.provider_url)?;
+    if !http_health(&provider_addr.0, provider_addr.1, "/health") {
+        println!("provider unavailable (truthful degraded state)");
+    }
+
+    if !Path::new(&cfg.model_path).exists() {
+        println!("MODEL_MISSING: {}", cfg.model_path);
+        println!("Next: sawyer models download {} --yes", cfg.model_id);
+        return Ok(());
+    }
+    models_verify(&cfg.model_id)?;
+
+    let router_addr = parse_host_port(&cfg.router_url)?;
+    let ok = chat_call(&router_addr.0, router_addr.1, &cfg.model_id)?;
+    if !ok {
+        bail!("router chat completion failed");
+    }
+
+    let private_blocked = cloud_blocked(&router_addr.0, router_addr.1)?;
+    if !private_blocked {
+        bail!("private prompt cloud protection check failed");
+    }
+
+    let degraded = degraded_when_unavailable(&router_addr.0, router_addr.1)?;
+    if !degraded {
+        bail!("degraded response check failed");
+    }
+    println!("smoke local passed");
+    Ok(())
+}
+
+fn degraded_when_unavailable(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"local-missing","messages":[{"role":"user","content":"ping"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 503") || raw.starts_with("HTTP/1.1 500"))
+}
+
+fn cloud_blocked(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"cloud/test","messages":[{"role":"user","content":"private check"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 403"))
+}
+
+fn chat_call(host: &str, port: u16, model_id: &str) -> Result<bool> {
+    let body = format!(
+        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"smoke test\"}}]}}",
+        model_id
+    );
+    let raw = http_post(host, port, "/v1/chat/completions", &body)?;
+    Ok(raw.starts_with("HTTP/1.1 200") || raw.starts_with("HTTP/1.1 503"))
+}
+
+fn http_post(host: &str, port: u16, path: &str, json: &str) -> Result<String> {
+    let mut stream = TcpStream::connect((host, port))
+        .with_context(|| format!("failed to connect to http://{host}:{port}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        json.len(), json
+    );
+    stream.write_all(req.as_bytes())?;
+    let mut out = String::new();
+    stream.read_to_string(&mut out)?;
+    Ok(out)
+}
+
+fn http_health(host: &str, port: u16, path: &str) -> bool {
+    let mut stream = match TcpStream::connect((host, port)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut out = String::new();
+    if stream.read_to_string(&mut out).is_err() {
+        return false;
+    }
+    out.starts_with("HTTP/1.1 200")
+}
+
+fn parse_host_port(url: &str) -> Result<(String, u16)> {
+    let stripped = url
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow!("only http:// localhost URLs are supported"))?;
+    let host_port = stripped.split('/').next().unwrap_or(stripped);
+    let mut parts = host_port.split(':');
+    let host = parts.next().unwrap_or("127.0.0.1").to_string();
+    let port: u16 = parts.next().unwrap_or("80").parse()?;
+    Ok((host, port))
+}
+
+fn parse_local_config(path: &Path) -> Result<LocalConfig> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("failed reading config {}", path.display()))?;
+    fn pick(text: &str, key: &str, default: &str) -> String {
+        text.lines()
+            .find_map(|l| {
+                let t = l.trim();
+                if t.starts_with('#') || !t.contains('=') {
+                    return None;
+                }
+                let (k, v) = t.split_once('=')?;
+                if k.trim() == key {
+                    Some(v.trim().trim_matches('"').to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| default.to_string())
+    }
+    Ok(LocalConfig {
+        router_url: pick(&text, "router_url", "http://127.0.0.1:8090"),
+        provider_url: pick(&text, "provider_url", "http://127.0.0.1:8080"),
+        model_id: pick(&text, "model_id", "tiny-q4"),
+        model_path: pick(&text, "model_path", "./models/tiny-q4.gguf"),
+        audit_log_path: pick(&text, "audit_log_path", "./logs/sawyer-audit.log"),
+    })
+}
+
+fn write_local_config(path: &Path, mode: &str) -> Result<()> {
+    if path.exists() {
+        let backup = path.with_extension("toml.bak");
+        fs::copy(path, &backup).with_context(|| format!("failed backing up {}", path.display()))?;
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let model_id = if mode == "local-tiny" {
+        "tiny-q4"
+    } else {
+        "balanced-q4"
+    };
+    let body = format!(
+        "# Sawyer local configuration\nrouter_url = \"http://127.0.0.1:8090\"\nprovider_url = \"http://127.0.0.1:8080\"\nmodel_id = \"{model_id}\"\nmodel_path = \"./models/{model_id}.gguf\"\naudit_log_path = \"./logs/sawyer-audit.log\"\nallow_cloud = false\nprivate_mode = true\n"
+    );
+    fs::write(path, body)?;
+    Ok(())
+}
+
+fn load_model_catalog() -> Result<ModelCatalog> {
+    let text = fs::read_to_string("config/model-packs.json")?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).context("invalid config/model-packs.json")?;
+    let models = v
+        .get("models")
+        .and_then(|m| m.as_array())
+        .ok_or_else(|| anyhow!("missing models array"))?;
+    let mut out = Vec::new();
+    for m in models {
+        out.push(ModelEntry {
+            id: m
+                .get("id")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            source_url: m
+                .get("source_url")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            expected_sha256: m
+                .get("expected_sha256")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            size_bytes: m
+                .get("size_bytes")
+                .and_then(|x| x.as_u64())
+                .unwrap_or_default(),
+            license: m
+                .get("license")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            recommended_ram_gb: m
+                .get("recommended_ram_gb")
+                .and_then(|x| x.as_u64())
+                .unwrap_or_default(),
+            recommended_provider: m
+                .get("recommended_provider")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            context_limit: m
+                .get("context_limit")
+                .and_then(|x| x.as_u64())
+                .unwrap_or_default() as usize,
+            task_suitability: m
+                .get("task_suitability")
+                .and_then(|x| x.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|i| i.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            default_local_path: m
+                .get("default_local_path")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+    Ok(ModelCatalog { models: out })
+}
+
+fn find_model<'a>(catalog: &'a ModelCatalog, model_id: &str) -> Result<&'a ModelEntry> {
+    catalog
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| anyhow!("unknown model id: {model_id}"))
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let output = Command::new("sha256sum").arg(path).output();
+    let line = match output {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
+        _ => {
+            let out = Command::new("shasum")
+                .args(["-a", "256"])
+                .arg(path)
+                .output()
+                .context("need sha256sum or shasum for checksum verification")?;
+            if !out.status.success() {
+                bail!("checksum tool failed");
+            }
+            String::from_utf8_lossy(&out.stdout).to_string()
+        }
+    };
+    line.split_whitespace()
+        .next()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow!("unable to parse checksum output"))
+}
+
+fn detect_ram_gb() -> u64 {
+    if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
+        if let Some(line) = meminfo.lines().find(|l| l.starts_with("MemTotal:")) {
+            if let Some(kb) = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                return kb / 1024 / 1024;
+            }
+        }
+    }
+    8
+}
+
+fn state_dir() -> PathBuf {
+    std::env::var("SAWYER_STATE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("./.sawyer"))
 }
