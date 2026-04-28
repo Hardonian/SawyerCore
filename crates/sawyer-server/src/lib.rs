@@ -367,28 +367,6 @@ pub struct SimRunResponse {
     pub events_per_sec: f64,
 }
 
-#[derive(Serialize)]
-struct ExplainUnavailable {
-    error: &'static str,
-    degraded: bool,
-}
-
-async fn explain_last() -> impl IntoResponse {
-    let path = std::env::var("SAWYER_STATE_DIR").unwrap_or_else(|_| ".sawyer".to_string());
-    let explain_path = std::path::Path::new(&path).join("last-explain.json");
-    match std::fs::read_to_string(explain_path) {
-        Ok(body) => (StatusCode::OK, body).into_response(),
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            Json(ExplainUnavailable {
-                error: "no routing explanation captured yet",
-                degraded: true,
-            }),
-        )
-            .into_response(),
-    }
-}
-
 async fn sim_run(Json(request): Json<SimRunRequest>) -> Json<SimRunResponse> {
     let mut runner = ScenarioRunner::new(request.seed);
     for event in request.events {

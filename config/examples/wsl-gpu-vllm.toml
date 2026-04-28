@@ -1,0 +1,12 @@
+bind = "127.0.0.1:8090"
+router_url = "http://127.0.0.1:8090"
+provider_url = "http://127.0.0.1:8000"
+allow_cloud = false
+private_mode = true
+max_request_bytes = 4194304
+max_context_tokens = 8192
+rate_limit_per_minute = 240
+audit_log_path = "./logs/sawyer-audit.log"
+model_id = "workstation-q4"
+model_path = "./models/workstation-q4.gguf"
+provider = "vllm"

@@ -772,7 +772,6 @@ dependencies = [
  "sawyer-server",
  "sawyer-sim",
  "sawyer-telemetry",
- "serde",
  "serde_json",
  "tokio",
  "tracing",

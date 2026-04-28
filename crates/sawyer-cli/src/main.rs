@@ -1,16 +1,17 @@
-use std::env;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    fs::{self, OpenOptions},
+    io::{Read, Write},
+    net::TcpStream,
+    path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 use sawyer_core::{DeterministicRuntime, RuntimeConfig};
-use sawyer_server::{serve, ServerState};
-use serde::{Deserialize, Serialize};
+use sawyer_server::{serve, SecurityConfig, ServerState};
+use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
 
 #[derive(Parser)]
 #[command(
@@ -26,379 +27,133 @@ struct Cli {
 enum Commands {
     Doctor,
     Serve(ServeArgs),
+    Sim(SimArgs),
     Models(ModelsArgs),
-    VerifyBinary(VerifyBinaryArgs),
-    Config(ConfigArgs),
-    Audit(AuditArgs),
-    Deploy(DeployArgs),
-    Mode(ModeArgs),
-    Security(SecurityArgs),
-    Limits(LimitsArgs),
-    Snapshot(SnapshotArgs),
-    Restore(RestoreArgs),
+    FirstRun(FirstRunArgs),
+    Smoke(SmokeArgs),
 }
 
 #[derive(Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "127.0.0.1:8080")]
+    #[arg(long, default_value = "127.0.0.1:8090")]
     bind: String,
     #[arg(long, default_value_t = false)]
-    airgapped: bool,
+    allow_lan: bool,
+    #[arg(long, env = "SAWYER_NODE_TOKEN")]
+    node_token: Option<String>,
+    #[arg(long, default_value_t = 1024 * 1024)]
+    max_request_bytes: usize,
+    #[arg(long, default_value_t = 8192)]
+    max_context_tokens: usize,
     #[arg(long, default_value_t = false)]
-    require_signed_config: bool,
+    allow_cloud: bool,
+    #[arg(long, default_value_t = true)]
+    private_mode: bool,
+    #[arg(long, default_value_t = true)]
+    redact_logs: bool,
+    #[arg(long, default_value = "./logs/sawyer-audit.log")]
+    audit_log_path: String,
+    #[arg(long, default_value_t = 120)]
+    rate_limit_per_minute: u32,
+    #[arg(long, default_value_t = false)]
+    unsafe_dev: bool,
+}
+
+#[derive(Args)]
+struct SimArgs {
+    #[command(subcommand)]
+    command: SimCommands,
+}
+
+#[derive(Subcommand)]
+enum SimCommands {
+    Run,
 }
 
 #[derive(Args)]
 struct ModelsArgs {
     #[command(subcommand)]
-    command: ModelsCommands,
-}
-
-#[derive(Subcommand)]
-enum ModelsCommands {
-    List,
-}
-
-#[derive(Args)]
-struct VerifyBinaryArgs {
-    file: PathBuf,
-    #[arg(long)]
-    manifest: Option<PathBuf>,
-}
-
-#[derive(Args)]
-struct ConfigArgs {
-    #[command(subcommand)]
-    command: ConfigCommands,
-}
-
-#[derive(Subcommand)]
-enum ConfigCommands {
-    Sign(ConfigSignArgs),
-    Verify(ConfigVerifyArgs),
-    Migrate(ConfigMigrateArgs),
-}
-
-#[derive(Args)]
-struct ConfigSignArgs {
-    #[arg(long, default_value = ".sawyer/config.json")]
-    file: PathBuf,
-    #[arg(long, default_value = "SAWYER_CONFIG_SIGNING_KEY")]
-    key_env: String,
-}
-
-#[derive(Args)]
-struct ConfigVerifyArgs {
-    #[arg(long, default_value = ".sawyer/config.json")]
-    file: PathBuf,
-    #[arg(long, default_value = "SAWYER_CONFIG_SIGNING_KEY")]
-    key_env: String,
-    #[arg(long, default_value_t = false)]
-    require_signed: bool,
-}
-
-#[derive(Args)]
-struct ConfigMigrateArgs {
-    #[arg(long, default_value = ".sawyer/config.json")]
-    file: PathBuf,
-    #[arg(long)]
-    target_version: Option<u32>,
-}
-
-#[derive(Args)]
-struct AuditArgs {
-    #[command(subcommand)]
-    command: AuditCommands,
-}
-
-#[derive(Subcommand)]
-enum AuditCommands {
-    Verify,
-    Export(AuditExportArgs),
-}
-
-#[derive(Args)]
-struct AuditExportArgs {
-    out: PathBuf,
-}
-
-#[derive(Args)]
-struct DeployArgs {
-    #[command(subcommand)]
-    command: DeployCommands,
-}
-
-#[derive(Subcommand)]
-enum DeployCommands {
-    Explain,
-    Validate,
-}
-
-#[derive(Args)]
-struct ModeArgs {
-    #[command(subcommand)]
-    command: ModeCommands,
-}
-
-#[derive(Subcommand)]
-enum ModeCommands {
-    Set { mode: DeploymentMode },
-    Current,
-}
-
-#[derive(Args)]
-struct SecurityArgs {
-    #[command(subcommand)]
     command: SecurityCommands,
 }
 
 #[derive(Subcommand)]
-enum SecurityCommands {
-    Audit,
+enum ModelsCommands {
+    Recommend,
+    Download {
+        model_id: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    Verify {
+        model_id: String,
+    },
+    ListLocal,
+    Remove {
+        model_id: String,
+    },
 }
 
 #[derive(Args)]
-struct LimitsArgs {
+struct FirstRunArgs {
+    #[arg(long, default_value = "./.sawyer/config.toml")]
+    config: PathBuf,
+}
+
+#[derive(Args)]
+struct SmokeArgs {
     #[command(subcommand)]
-    command: LimitsCommands,
+    command: SmokeCommands,
 }
 
 #[derive(Subcommand)]
-enum LimitsCommands {
-    Show,
-    Set(LimitsSetArgs),
+enum SmokeCommands {
+    Local {
+        #[arg(long, default_value = "./.sawyer/config.toml")]
+        config: PathBuf,
+    },
 }
 
-#[derive(Args)]
-struct LimitsSetArgs {
-    #[arg(long)]
-    max_concurrent_tasks: u32,
-    #[arg(long)]
-    max_memory_mb_per_task: u32,
-    #[arg(long)]
-    max_tokens_per_request: u32,
-    #[arg(long)]
-    max_cpu_ms_per_task: u32,
+#[derive(Debug)]
+struct ModelCatalog {
+    models: Vec<ModelEntry>,
 }
 
-#[derive(Args)]
-struct SnapshotArgs {
-    #[arg(long, default_value = "./snapshot.json")]
-    out: PathBuf,
+#[derive(Debug)]
+struct ModelEntry {
+    id: String,
+    source_url: String,
+    expected_sha256: String,
+    size_bytes: u64,
+    license: String,
+    recommended_ram_gb: u64,
+    recommended_provider: String,
+    context_limit: usize,
+    task_suitability: Vec<String>,
+    default_local_path: String,
 }
 
-#[derive(Args)]
-struct RestoreArgs {
-    file: PathBuf,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-enum DeploymentMode {
-    SingleNode,
-    LocalCluster,
-    Airgapped,
-    ServerMode,
-    PortableMode,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct RuntimeLimits {
-    max_concurrent_tasks: u32,
-    max_memory_mb_per_task: u32,
-    max_tokens_per_request: u32,
-    max_cpu_ms_per_task: u32,
-}
-
-impl Default for RuntimeLimits {
-    fn default() -> Self {
-        Self {
-            max_concurrent_tasks: 32,
-            max_memory_mb_per_task: 2048,
-            max_tokens_per_request: 8192,
-            max_cpu_ms_per_task: 30_000,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct RuntimeConfigFile {
-    version: u32,
-    mode: DeploymentMode,
-    allow_cloud: bool,
-    enforce_signed_config: bool,
-    allow_network: bool,
-    provider_local_only: bool,
-}
-
-impl Default for RuntimeConfigFile {
-    fn default() -> Self {
-        Self {
-            version: 1,
-            mode: DeploymentMode::SingleNode,
-            allow_cloud: false,
-            enforce_signed_config: false,
-            allow_network: true,
-            provider_local_only: true,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ReleaseManifest {
-    binary_path: String,
-    binary_sha256: String,
-    version: String,
-    commit_hash: String,
-    build_timestamp_unix: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct AuditRecord {
-    ts_unix: u64,
-    event: String,
-    prev_hash: String,
-    hash: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SnapshotFile {
-    config: RuntimeConfigFile,
-    limits: RuntimeLimits,
-    audit_records: Vec<AuditRecord>,
-    cluster_registry: serde_json::Value,
-    adaptive_state: serde_json::Value,
+struct LocalConfig {
+    router_url: String,
+    provider_url: String,
+    model_id: String,
+    model_path: String,
+    audit_log_path: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
-
     match cli.command {
         Commands::Doctor => doctor(),
         Commands::Serve(args) => serve_cmd(args).await,
-        Commands::Models(args) => match args.command {
-            ModelsCommands::List => models_list(),
+        Commands::Sim(sim) => match sim.command {
+            SimCommands::Run => sim_run(),
         },
-        Commands::VerifyBinary(args) => verify_binary(args),
-        Commands::Config(args) => config_cmd(args),
-        Commands::Audit(args) => audit_cmd(args),
-        Commands::Deploy(args) => deploy_cmd(args),
-        Commands::Mode(args) => mode_cmd(args),
-        Commands::Security(args) => security_cmd(args),
-        Commands::Limits(args) => limits_cmd(args),
-        Commands::Snapshot(args) => snapshot_cmd(args),
-        Commands::Restore(args) => restore_cmd(args),
-    }
-}
-
-fn doctor() -> Result<()> {
-    let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
-    runtime.step();
-    let cfg = load_runtime_config()?;
-    let limits = load_limits()?;
-
-    println!("Sawyer doctor report");
-    println!("- tick: {}", runtime.tick());
-    println!("- mode: {:?}", cfg.mode);
-    println!("- allow_cloud: {}", cfg.allow_cloud);
-    println!("- allow_network: {}", cfg.allow_network);
-    println!("- enforce_signed_config: {}", cfg.enforce_signed_config);
-    println!("- max_concurrent_tasks: {}", limits.max_concurrent_tasks);
-    Ok(())
-}
-
-async fn serve_cmd(args: ServeArgs) -> Result<()> {
-    let cfg = load_runtime_config()?;
-    if args.require_signed_config || cfg.enforce_signed_config {
-        let verify = verify_config_internal(&ConfigVerifyArgs {
-            file: config_path(),
-            key_env: "SAWYER_CONFIG_SIGNING_KEY".to_string(),
-            require_signed: true,
-        })?;
-        if !verify {
-            bail!("config signature verification failed in strict mode");
-        }
-    } else if signature_path(&config_path()).exists() {
-        let _ = verify_config_internal(&ConfigVerifyArgs {
-            file: config_path(),
-            key_env: "SAWYER_CONFIG_SIGNING_KEY".to_string(),
-            require_signed: false,
-        })?;
-    } else {
-        eprintln!("warning: config is unsigned (allowed outside strict mode)");
-    }
-
-    let addr: SocketAddr = args.bind.parse().context("invalid --bind address")?;
-    if args.airgapped || cfg.mode == DeploymentMode::Airgapped {
-        enforce_airgapped(addr, &cfg)?;
-    }
-
-    println!("starting server on {}", args.bind);
-    serve(&args.bind, ServerState::default()).await
-}
-
-fn verify_binary(args: VerifyBinaryArgs) -> Result<()> {
-    let digest = file_sha256(&args.file)?;
-    let manifest_path = args
-        .manifest
-        .unwrap_or_else(|| args.file.with_extension("manifest.json"));
-
-    let manifest: ReleaseManifest = serde_json::from_slice(
-        &fs::read(&manifest_path)
-            .with_context(|| format!("manifest not found: {}", manifest_path.display()))?,
-    )?;
-
-    if manifest.binary_sha256 != digest {
-        bail!(
-            "binary hash mismatch: expected {}, got {}",
-            manifest.binary_sha256,
-            digest
-        );
-    }
-
-    println!("verified binary integrity");
-    println!("- file: {}", args.file.display());
-    println!("- sha256: {}", digest);
-    println!("- version: {}", manifest.version);
-    println!("- commit: {}", manifest.commit_hash);
-    Ok(())
-}
-
-fn config_cmd(args: ConfigArgs) -> Result<()> {
-    match args.command {
-        ConfigCommands::Sign(sign_args) => config_sign(sign_args),
-        ConfigCommands::Verify(verify_args) => {
-            let valid = verify_config_internal(&verify_args)?;
-            if !valid {
-                bail!("config verification failed");
-            }
-            Ok(())
-        }
-        ConfigCommands::Migrate(migrate_args) => config_migrate(migrate_args),
-    }
-}
-
-fn config_sign(args: ConfigSignArgs) -> Result<()> {
-    let key = env::var(&args.key_env)
-        .with_context(|| format!("missing key env var: {}", args.key_env))?;
-    let bytes = fs::read(&args.file)?;
-    let signature = sign_bytes(&bytes, &key)?;
-    let sig_path = signature_path(&args.file);
-    fs::write(&sig_path, signature)?;
-    println!("config signed: {}", sig_path.display());
-    Ok(())
-}
-
-fn verify_config_internal(args: &ConfigVerifyArgs) -> Result<bool> {
-    let sig_path = signature_path(&args.file);
-    if !sig_path.exists() {
-        if args.require_signed {
-            bail!("missing config signature: {}", sig_path.display());
-        }
-        eprintln!("warning: config unsigned");
-        return Ok(false);
+        Commands::Models(args) => models(args),
+        Commands::FirstRun(args) => first_run(args),
+        Commands::Smoke(args) => match args.command {
+            SmokeCommands::Local { config } => smoke_local(&config),
+        },
     }
 
     let key = env::var(&args.key_env)
@@ -449,238 +204,248 @@ fn audit_verify() -> Result<()> {
     Ok(())
 }
 
-fn audit_export(args: AuditExportArgs) -> Result<()> {
-    let records = read_audit_records()?;
-    write_json(&args.out, &records)?;
+fn doctor() -> Result<()> {
+    let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
+    runtime.step();
+    println!("Sawyer doctor report");
+    println!("- tick: {}", runtime.tick());
+    println!("- state_dir: {}", state_dir().display());
+    Ok(())
+}
+
+async fn serve_cmd(args: ServeArgs) -> Result<()> {
+    let security = SecurityConfig {
+        bind_host: args
+            .bind
+            .split(':')
+            .next()
+            .unwrap_or("127.0.0.1")
+            .to_string(),
+        allow_lan: args.allow_lan,
+        require_node_token: true,
+        max_request_bytes: args.max_request_bytes,
+        max_context_tokens: args.max_context_tokens,
+        allow_cloud: args.allow_cloud,
+        private_mode: args.private_mode,
+        redact_logs: args.redact_logs,
+        audit_log_path: args.audit_log_path,
+        rate_limit_per_minute: args.rate_limit_per_minute,
+    };
+    let state = ServerState::with_security(
+        security,
+        args.node_token,
+        std::env::var("SAWYER_CLOUD_API_KEY").is_ok(),
+    );
+    println!("starting server on {}", args.bind);
+    serve(&args.bind, state, args.unsafe_dev).await
+}
+
+fn sim_run() -> Result<()> {
+    let mut runner = ScenarioRunner::new(1234);
+    runner.push_event(SimEvent {
+        tick: 1,
+        agent_id: 1,
+        payload: "start".into(),
+    });
+    let mut agents = vec![Agent::new(1)];
+    let (replay, metrics) = runner.run(&mut agents);
     println!(
-        "exported {} audit records to {}",
-        records.len(),
-        args.out.display()
+        "sim run complete seed={} events={} eps={:.2}",
+        replay.seed,
+        replay.events.len(),
+        metrics.events_per_sec
     );
     Ok(())
 }
 
-fn deploy_cmd(args: DeployArgs) -> Result<()> {
+fn models(args: ModelsArgs) -> Result<()> {
     match args.command {
-        DeployCommands::Explain => {
-            for mode in [
-                DeploymentMode::SingleNode,
-                DeploymentMode::LocalCluster,
-                DeploymentMode::Airgapped,
-                DeploymentMode::ServerMode,
-                DeploymentMode::PortableMode,
-            ] {
-                println!("{}", describe_mode(mode));
-            }
-            Ok(())
-        }
-        DeployCommands::Validate => {
-            let cfg = load_runtime_config()?;
-            validate_mode(cfg.mode, &cfg)?;
-            println!("deployment config valid for mode: {:?}", cfg.mode);
-            Ok(())
-        }
+        ModelsCommands::Recommend => models_recommend(),
+        ModelsCommands::Download { model_id, yes } => models_download(&model_id, yes),
+        ModelsCommands::Verify { model_id } => models_verify(&model_id),
+        ModelsCommands::ListLocal => models_list_local(),
+        ModelsCommands::Remove { model_id } => models_remove(&model_id),
     }
 }
 
-fn mode_cmd(args: ModeArgs) -> Result<()> {
-    let mut cfg = load_runtime_config()?;
-    match args.command {
-        ModeCommands::Set { mode } => {
-            cfg.mode = mode;
-            if mode == DeploymentMode::Airgapped {
-                cfg.allow_network = false;
-                cfg.allow_cloud = false;
-                cfg.provider_local_only = true;
-            }
-            write_json(&config_path(), &cfg)?;
-            println!("mode set to {:?}", mode);
-            Ok(())
-        }
-        ModeCommands::Current => {
-            println!("{:?}", cfg.mode);
-            Ok(())
-        }
-    }
-}
-
-fn security_cmd(args: SecurityArgs) -> Result<()> {
-    match args.command {
-        SecurityCommands::Audit => {
-            println!("security audit report");
-            println!("- dependency allowlist: docs/security/dependency-policy.md");
-
-            let cargo_audit = Command::new("cargo").arg("audit").output();
-            match cargo_audit {
-                Ok(out) => {
-                    print!("{}", String::from_utf8_lossy(&out.stdout));
-                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
-                    if !out.status.success() {
-                        let stderr = String::from_utf8_lossy(&out.stderr);
-                        if stderr.contains("no such command: `audit`") {
-                            println!("- cargo-audit command not installed; skipping CVE scan");
-                        } else {
-                            bail!("cargo audit reported vulnerabilities or an execution error");
-                        }
-                    }
-                }
-                Err(_) => {
-                    println!("- cargo-audit unavailable; install cargo-audit for CVE scanning");
-                }
-            }
-
-            let tree = Command::new("cargo")
-                .args(["tree", "--workspace"])
-                .status()?;
-            if !tree.success() {
-                bail!("cargo tree failed");
-            }
-            println!(
-                "- license and unused dependency checks require cargo-deny/cargo-udeps tooling"
-            );
-            Ok(())
-        }
-    }
-}
-
-fn limits_cmd(args: LimitsArgs) -> Result<()> {
-    match args.command {
-        LimitsCommands::Show => {
-            let limits = load_limits()?;
-            println!("{}", serde_json::to_string_pretty(&limits)?);
-            Ok(())
-        }
-        LimitsCommands::Set(set) => {
-            let limits = RuntimeLimits {
-                max_concurrent_tasks: set.max_concurrent_tasks,
-                max_memory_mb_per_task: set.max_memory_mb_per_task,
-                max_tokens_per_request: set.max_tokens_per_request,
-                max_cpu_ms_per_task: set.max_cpu_ms_per_task,
-            };
-            write_json(&limits_path(), &limits)?;
-            println!("runtime limits updated");
-            Ok(())
-        }
-    }
-}
-
-fn snapshot_cmd(args: SnapshotArgs) -> Result<()> {
-    let snapshot = SnapshotFile {
-        config: load_runtime_config()?,
-        limits: load_limits()?,
-        audit_records: read_audit_records()?,
-        adaptive_state: serde_json::json!({"status": "not-captured-in-v1"}),
-        cluster_registry: serde_json::json!({"nodes": []}),
+fn models_recommend() -> Result<()> {
+    let ram = detect_ram_gb();
+    let pack = if ram <= 6 {
+        "tiny"
+    } else if ram <= 12 {
+        "balanced"
+    } else if ram <= 32 {
+        "quality-local"
+    } else {
+        "workstation"
     };
-    write_json(&args.out, &snapshot)?;
-    println!("snapshot written: {}", args.out.display());
+    println!("Recommended model pack: {pack} (detected RAM: {} GB)", ram);
+    println!("Next: sawyer models list-local || sawyer models download <model-id> --yes");
     Ok(())
 }
 
-fn restore_cmd(args: RestoreArgs) -> Result<()> {
-    let snapshot: SnapshotFile = serde_json::from_slice(&fs::read(&args.file)?)?;
-    validate_mode(snapshot.config.mode, &snapshot.config)?;
+fn models_download(model_id: &str, yes: bool) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    if !model.source_url.starts_with("https://") {
+        bail!("refusing insecure URL for {model_id}; HTTPS is required");
+    }
+    if model.expected_sha256.len() != 64 {
+        bail!("model {model_id} missing valid checksum metadata");
+    }
+    println!("Model license: {}", model.license);
+    if !yes {
+        println!("Refusing auto-download without explicit consent.");
+        println!("Re-run with: sawyer models download {model_id} --yes");
+        return Ok(());
+    }
 
-    write_json(&config_path(), &snapshot.config)?;
-    write_json(&limits_path(), &snapshot.limits)?;
-    write_audit_records(&snapshot.audit_records)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
-    println!("snapshot restored from {}", args.file.display());
+    let status = Command::new("curl")
+        .args([
+            "--fail",
+            "--location",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "-o",
+        ])
+        .arg(&path)
+        .arg(&model.source_url)
+        .status()
+        .context("failed to execute curl; install curl and retry")?;
+
+    if !status.success() {
+        bail!("download failed for {model_id}; check network and URL");
+    }
+
+    let actual = sha256_file(&path)?;
+    if actual != model.expected_sha256 {
+        let _ = fs::remove_file(&path);
+        bail!(
+            "checksum mismatch for {model_id}; file deleted (expected {}, got {})",
+            model.expected_sha256,
+            actual
+        );
+    }
+    println!("Downloaded and verified {} at {}", model_id, path.display());
     Ok(())
 }
 
-fn models_list() -> Result<()> {
-    let state = ServerState::default();
-    for model in &state.registry.models {
+fn models_verify(model_id: &str) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if !path.exists() {
+        bail!(
+            "MODEL_MISSING: {}\nNext: sawyer models download {} --yes",
+            path.display(),
+            model_id
+        );
+    }
+    let actual = sha256_file(&path)?;
+    if actual != model.expected_sha256 {
+        bail!("checksum mismatch for {model_id}");
+    }
+    println!("verified {}", model_id);
+    Ok(())
+}
+
+fn models_list_local() -> Result<()> {
+    let catalog = load_model_catalog()?;
+    for model in catalog.models {
+        let exists = Path::new(&model.default_local_path).exists();
         println!(
-            "{} backend={} available={} status={}",
-            model.id, model.backend, model.available, model.status
+            "{} path={} present={} provider={} ctx={} size_bytes={} ram_gb={} tasks={}",
+            model.id,
+            model.default_local_path,
+            exists,
+            model.recommended_provider,
+            model.context_limit,
+            model.size_bytes,
+            model.recommended_ram_gb,
+            model.task_suitability.join(",")
         );
     }
     Ok(())
 }
 
-fn state_dir() -> PathBuf {
-    PathBuf::from(env::var("SAWYER_STATE_DIR").unwrap_or_else(|_| ".sawyer".to_string()))
-}
-
-fn config_path() -> PathBuf {
-    state_dir().join("config.json")
-}
-
-fn limits_path() -> PathBuf {
-    state_dir().join("limits.json")
-}
-
-fn audit_path() -> PathBuf {
-    state_dir().join("audit").join("log.jsonl")
-}
-
-fn signature_path(config: &Path) -> PathBuf {
-    let mut path = config.to_path_buf();
-    path.set_extension("json.sig");
-    path
-}
-
-fn load_runtime_config() -> Result<RuntimeConfigFile> {
-    let path = config_path();
-    if !path.exists() {
-        let cfg = RuntimeConfigFile::default();
-        write_json(&path, &cfg)?;
-        return Ok(cfg);
+fn models_remove(model_id: &str) -> Result<()> {
+    let catalog = load_model_catalog()?;
+    let model = find_model(&catalog, model_id)?;
+    let path = PathBuf::from(&model.default_local_path);
+    if path.exists() {
+        fs::remove_file(&path)?;
+        println!("removed {}", path.display());
+    } else {
+        println!("nothing to remove; {} missing", path.display());
     }
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
-}
-
-fn load_limits() -> Result<RuntimeLimits> {
-    let path = limits_path();
-    if !path.exists() {
-        let limits = RuntimeLimits::default();
-        write_json(&path, &limits)?;
-        return Ok(limits);
-    }
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
-}
-
-fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut f = File::create(path)?;
-    let body = serde_json::to_vec_pretty(value)?;
-    f.write_all(&body)?;
-    f.write_all(b"\n")?;
     Ok(())
 }
 
-fn file_sha256(path: &Path) -> Result<String> {
-    let output = Command::new("sha256sum")
-        .arg(path)
-        .output()
-        .context("sha256sum missing")?;
-    if !output.status.success() {
-        bail!("sha256sum failed for {}", path.display());
+fn first_run(args: FirstRunArgs) -> Result<()> {
+    let ram = detect_ram_gb();
+    let arch = std::env::consts::ARCH;
+    let os = std::env::consts::OS;
+    let pack = if ram <= 6 {
+        "tiny"
+    } else if ram <= 12 {
+        "balanced"
+    } else if ram <= 32 {
+        "quality-local"
+    } else {
+        "workstation"
+    };
+    let mode = if pack == "tiny" {
+        "local-tiny"
+    } else {
+        "local-balanced"
+    };
+
+    write_local_config(&args.config, mode)?;
+    let provider_ok = http_health("127.0.0.1", 8080, "/health");
+
+    println!("1. Your device: os={os} arch={arch} ram_gb={ram}");
+    println!("2. Recommended mode: {mode}");
+    println!("3. Recommended model: {pack}");
+    println!("4. Provider status: llama.cpp@127.0.0.1:8080 reachable={provider_ok}");
+    if let Ok(cfg) = parse_local_config(&args.config) {
+        if Path::new(&cfg.model_path).exists() {
+            println!(
+                "5. Next command: sawyer smoke local --config {}",
+                args.config.display()
+            );
+        } else {
+            println!(
+                "5. Next command: sawyer models download {} --yes",
+                cfg.model_id
+            );
+        }
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let hash = stdout
-        .split_whitespace()
-        .next()
-        .context("unable to parse sha256sum output")?;
-    Ok(hash.to_string())
+    Ok(())
 }
 
-fn sha256_bytes(input: &[u8]) -> Result<String> {
-    let mut child = Command::new("sha256sum")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("sha256sum missing")?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(input)?;
+fn smoke_local(config_path: &Path) -> Result<()> {
+    let cfg = parse_local_config(config_path)?;
+    if !Path::new(config_path).exists() {
+        bail!("config missing: {}", config_path.display());
     }
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        bail!("sha256sum failed");
+    if let Some(parent) = Path::new(&cfg.audit_log_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&cfg.audit_log_path)
+        .with_context(|| format!("audit log not writable: {}", cfg.audit_log_path))?;
+
+    let provider_addr = parse_host_port(&cfg.provider_url)?;
+    if !http_health(&provider_addr.0, provider_addr.1, "/health") {
+        println!("provider unavailable (truthful degraded state)");
     }
     let hash = String::from_utf8_lossy(&output.stdout)
         .split_whitespace()
@@ -690,100 +455,257 @@ fn sha256_bytes(input: &[u8]) -> Result<String> {
     Ok(hash)
 }
 
-fn sign_bytes(payload: &[u8], key: &str) -> Result<String> {
-    let mut data = Vec::with_capacity(payload.len() + key.len());
-    data.extend_from_slice(payload);
-    data.extend_from_slice(key.as_bytes());
-    sha256_bytes(&data)
+    if !Path::new(&cfg.model_path).exists() {
+        println!("MODEL_MISSING: {}", cfg.model_path);
+        println!("Next: sawyer models download {} --yes", cfg.model_id);
+        return Ok(());
+    }
+    models_verify(&cfg.model_id)?;
+
+    let router_addr = parse_host_port(&cfg.router_url)?;
+    let ok = chat_call(&router_addr.0, router_addr.1, &cfg.model_id)?;
+    if !ok {
+        bail!("router chat completion failed");
+    }
+
+    let private_blocked = cloud_blocked(&router_addr.0, router_addr.1)?;
+    if !private_blocked {
+        bail!("private prompt cloud protection check failed");
+    }
+
+    let degraded = degraded_when_unavailable(&router_addr.0, router_addr.1)?;
+    if !degraded {
+        bail!("degraded response check failed");
+    }
+    println!("smoke local passed");
+    Ok(())
 }
 
-fn read_audit_records() -> Result<Vec<AuditRecord>> {
-    let path = audit_path();
-    if !path.exists() {
-        return Ok(vec![]);
-    }
+fn degraded_when_unavailable(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"local-missing","messages":[{"role":"user","content":"ping"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 503") || raw.starts_with("HTTP/1.1 500"))
+}
 
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let mut out = Vec::new();
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        out.push(serde_json::from_str::<AuditRecord>(&line)?);
-    }
+fn cloud_blocked(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"cloud/test","messages":[{"role":"user","content":"private check"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 403"))
+}
+
+fn chat_call(host: &str, port: u16, model_id: &str) -> Result<bool> {
+    let body = format!(
+        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"smoke test\"}}]}}",
+        model_id
+    );
+    let raw = http_post(host, port, "/v1/chat/completions", &body)?;
+    Ok(raw.starts_with("HTTP/1.1 200") || raw.starts_with("HTTP/1.1 503"))
+}
+
+fn http_post(host: &str, port: u16, path: &str, json: &str) -> Result<String> {
+    let mut stream = TcpStream::connect((host, port))
+        .with_context(|| format!("failed to connect to http://{host}:{port}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        json.len(), json
+    );
+    stream.write_all(req.as_bytes())?;
+    let mut out = String::new();
+    stream.read_to_string(&mut out)?;
     Ok(out)
 }
 
-fn write_audit_records(records: &[AuditRecord]) -> Result<()> {
-    let path = audit_path();
+fn http_health(host: &str, port: u16, path: &str) -> bool {
+    let mut stream = match TcpStream::connect((host, port)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut out = String::new();
+    if stream.read_to_string(&mut out).is_err() {
+        return false;
+    }
+    out.starts_with("HTTP/1.1 200")
+}
+
+fn parse_host_port(url: &str) -> Result<(String, u16)> {
+    let stripped = url
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow!("only http:// localhost URLs are supported"))?;
+    let host_port = stripped.split('/').next().unwrap_or(stripped);
+    let mut parts = host_port.split(':');
+    let host = parts.next().unwrap_or("127.0.0.1").to_string();
+    let port: u16 = parts.next().unwrap_or("80").parse()?;
+    Ok((host, port))
+}
+
+fn parse_local_config(path: &Path) -> Result<LocalConfig> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("failed reading config {}", path.display()))?;
+    fn pick(text: &str, key: &str, default: &str) -> String {
+        text.lines()
+            .find_map(|l| {
+                let t = l.trim();
+                if t.starts_with('#') || !t.contains('=') {
+                    return None;
+                }
+                let (k, v) = t.split_once('=')?;
+                if k.trim() == key {
+                    Some(v.trim().trim_matches('"').to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| default.to_string())
+    }
+    Ok(LocalConfig {
+        router_url: pick(&text, "router_url", "http://127.0.0.1:8090"),
+        provider_url: pick(&text, "provider_url", "http://127.0.0.1:8080"),
+        model_id: pick(&text, "model_id", "tiny-q4"),
+        model_path: pick(&text, "model_path", "./models/tiny-q4.gguf"),
+        audit_log_path: pick(&text, "audit_log_path", "./logs/sawyer-audit.log"),
+    })
+}
+
+fn write_local_config(path: &Path, mode: &str) -> Result<()> {
+    if path.exists() {
+        let backup = path.with_extension("toml.bak");
+        fs::copy(path, &backup).with_context(|| format!("failed backing up {}", path.display()))?;
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let mut f = File::create(path)?;
-    for r in records {
-        let line = serde_json::to_string(r)?;
-        f.write_all(line.as_bytes())?;
-        f.write_all(b"\n")?;
-    }
+    let model_id = if mode == "local-tiny" {
+        "tiny-q4"
+    } else {
+        "balanced-q4"
+    };
+    let body = format!(
+        "# Sawyer local configuration\nrouter_url = \"http://127.0.0.1:8090\"\nprovider_url = \"http://127.0.0.1:8080\"\nmodel_id = \"{model_id}\"\nmodel_path = \"./models/{model_id}.gguf\"\naudit_log_path = \"./logs/sawyer-audit.log\"\nallow_cloud = false\nprivate_mode = true\n"
+    );
+    fs::write(path, body)?;
     Ok(())
 }
 
-fn audit_hash(ts_unix: u64, event: &str, prev_hash: &str) -> String {
-    let payload = format!("{ts_unix}:{event}:{prev_hash}");
-    sha256_bytes(payload.as_bytes()).unwrap_or_else(|_| "HASH_ERROR".to_string())
+fn load_model_catalog() -> Result<ModelCatalog> {
+    let text = fs::read_to_string("config/model-packs.json")?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).context("invalid config/model-packs.json")?;
+    let models = v
+        .get("models")
+        .and_then(|m| m.as_array())
+        .ok_or_else(|| anyhow!("missing models array"))?;
+    let mut out = Vec::new();
+    for m in models {
+        out.push(ModelEntry {
+            id: m
+                .get("id")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            source_url: m
+                .get("source_url")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            expected_sha256: m
+                .get("expected_sha256")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            size_bytes: m
+                .get("size_bytes")
+                .and_then(|x| x.as_u64())
+                .unwrap_or_default(),
+            license: m
+                .get("license")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            recommended_ram_gb: m
+                .get("recommended_ram_gb")
+                .and_then(|x| x.as_u64())
+                .unwrap_or_default(),
+            recommended_provider: m
+                .get("recommended_provider")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            context_limit: m
+                .get("context_limit")
+                .and_then(|x| x.as_u64())
+                .unwrap_or_default() as usize,
+            task_suitability: m
+                .get("task_suitability")
+                .and_then(|x| x.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|i| i.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            default_local_path: m
+                .get("default_local_path")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+    Ok(ModelCatalog { models: out })
 }
 
-fn enforce_airgapped(bind: SocketAddr, cfg: &RuntimeConfigFile) -> Result<()> {
-    let localhost = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    if bind.ip() != localhost {
-        bail!("airgapped mode requires localhost bind address");
-    }
-    if cfg.allow_network {
-        bail!("airgapped mode requires allow_network=false");
-    }
-    if cfg.allow_cloud {
-        bail!("airgapped mode requires allow_cloud=false");
-    }
-    if !cfg.provider_local_only {
-        bail!("airgapped mode requires provider_local_only=true");
-    }
-    Ok(())
+fn find_model<'a>(catalog: &'a ModelCatalog, model_id: &str) -> Result<&'a ModelEntry> {
+    catalog
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| anyhow!("unknown model id: {model_id}"))
 }
 
-fn validate_mode(mode: DeploymentMode, cfg: &RuntimeConfigFile) -> Result<()> {
-    match mode {
-        DeploymentMode::SingleNode => Ok(()),
-        DeploymentMode::LocalCluster => Ok(()),
-        DeploymentMode::Airgapped => {
-            enforce_airgapped(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0), cfg)
+fn sha256_file(path: &Path) -> Result<String> {
+    let output = Command::new("sha256sum").arg(path).output();
+    let line = match output {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
+        _ => {
+            let out = Command::new("shasum")
+                .args(["-a", "256"])
+                .arg(path)
+                .output()
+                .context("need sha256sum or shasum for checksum verification")?;
+            if !out.status.success() {
+                bail!("checksum tool failed");
+            }
+            String::from_utf8_lossy(&out.stdout).to_string()
         }
-        DeploymentMode::ServerMode => {
-            if cfg.enforce_signed_config {
-                Ok(())
-            } else {
-                bail!("server-mode requires enforce_signed_config=true")
+    };
+    line.split_whitespace()
+        .next()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow!("unable to parse checksum output"))
+}
+
+fn detect_ram_gb() -> u64 {
+    if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
+        if let Some(line) = meminfo.lines().find(|l| l.starts_with("MemTotal:")) {
+            if let Some(kb) = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                return kb / 1024 / 1024;
             }
         }
-        DeploymentMode::PortableMode => Ok(()),
     }
+    8
 }
 
-fn describe_mode(mode: DeploymentMode) -> String {
-    match mode {
-        DeploymentMode::SingleNode => "single-node: bind localhost, info logging, local providers preferred, moderate security".to_string(),
-        DeploymentMode::LocalCluster => "local-cluster: bind RFC1918/internal, warn logging, local gateway providers, strict policy".to_string(),
-        DeploymentMode::Airgapped => "airgapped: localhost-only, no network or DNS, local provider only, strictest security".to_string(),
-        DeploymentMode::ServerMode => "server-mode: operator bind, JSON logs, signed config required, explicit cloud opt-in only".to_string(),
-        DeploymentMode::PortableMode => "portable-mode: localhost-first, reduced logging noise, local provider required by default".to_string(),
-    }
-}
-
-#[allow(dead_code)]
-fn now_unix() -> Result<u64> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| anyhow!("system time error: {e}"))?
-        .as_secs())
+fn state_dir() -> PathBuf {
+    std::env::var("SAWYER_STATE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("./.sawyer"))
 }
