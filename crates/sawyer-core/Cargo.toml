@@ -8,6 +8,8 @@ license.workspace = true
 sawyer-kernels = { path = "../sawyer-kernels" }
 sawyer-memory = { path = "../sawyer-memory" }
 sawyer-scheduler = { path = "../sawyer-scheduler" }
+sawyer-history = { path = "../sawyer-history" }
+sawyer-telemetry = { path = "../sawyer-telemetry" }
 serde.workspace = true
 
 [dev-dependencies]

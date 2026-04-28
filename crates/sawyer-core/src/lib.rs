@@ -1,8 +1,10 @@
 //! Runtime primitives for SawyerCore.
 
+use sawyer_history::{AdaptiveConfig, HistoryIndex, ScoreBreakdown};
 use sawyer_kernels::{detect_cpu_features, CpuFeatures};
 use sawyer_memory::Arena;
 use sawyer_scheduler::Scheduler;
+use sawyer_telemetry::RequestTelemetry;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,5 +51,45 @@ impl DeterministicRuntime {
 
     pub fn tick(&self) -> u64 {
         self.scheduler.tick()
+    }
+}
+
+pub struct AdaptiveRoutingEngine {
+    config: AdaptiveConfig,
+    history: HistoryIndex,
+}
+
+impl AdaptiveRoutingEngine {
+    pub fn new(config: AdaptiveConfig) -> Self {
+        Self {
+            history: HistoryIndex::new(config.adaptive_window_size),
+            config,
+        }
+    }
+
+    pub fn record(&mut self, request: RequestTelemetry) {
+        self.history.push(request);
+    }
+
+    pub fn score_candidate(
+        &self,
+        provider: &str,
+        task_type: &str,
+        base_score: i32,
+        now_ms: u64,
+        is_cloud: bool,
+        estimated_cost_micros: u64,
+        unhealthy: bool,
+    ) -> ScoreBreakdown {
+        self.history.score_provider(
+            &self.config,
+            provider,
+            task_type,
+            base_score,
+            now_ms,
+            is_cloud,
+            estimated_cost_micros,
+            unhealthy,
+        )
     }
 }
