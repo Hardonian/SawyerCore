@@ -71,6 +71,7 @@ impl AdaptiveRoutingEngine {
         self.history.push(request);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn score_candidate(
         &self,
         provider: &str,

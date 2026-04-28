@@ -1,13 +1,16 @@
-use std::path::PathBuf;
+use std::env;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use anyhow::{anyhow, bail, Context, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use sawyer_core::{DeterministicRuntime, RuntimeConfig};
-use sawyer_history::{AdaptiveConfig, HistoryIndex};
-use sawyer_kernels::{detect_cpu_features, dot_product};
 use sawyer_server::{serve, ServerState};
-use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
-use sawyer_telemetry::{RequestTelemetry, TelemetryConfig, TelemetryEngine};
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[command(
@@ -22,66 +25,27 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Doctor,
-    Bench(BenchArgs),
-    Calibrate,
-    Stats(StatsArgs),
-    Explain(ExplainArgs),
-    Sim(SimArgs),
     Serve(ServeArgs),
     Models(ModelsArgs),
-}
-
-#[derive(Args)]
-struct BenchArgs {
-    #[command(subcommand)]
-    command: BenchCommands,
-}
-
-#[derive(Subcommand)]
-enum BenchCommands {
-    Quick,
-    Compare,
-}
-
-#[derive(Args)]
-struct ExplainArgs {
-    #[command(subcommand)]
-    command: ExplainCommands,
-}
-
-#[derive(Subcommand)]
-enum ExplainCommands {
-    Adaptive,
-}
-
-#[derive(Args)]
-struct StatsArgs {
-    #[command(subcommand)]
-    command: StatsCommands,
-}
-
-#[derive(Subcommand)]
-enum StatsCommands {
-    Providers,
-    Tasks,
-    Failures,
-}
-
-#[derive(Args)]
-struct SimArgs {
-    #[command(subcommand)]
-    command: SimCommands,
-}
-
-#[derive(Subcommand)]
-enum SimCommands {
-    Run,
+    VerifyBinary(VerifyBinaryArgs),
+    Config(ConfigArgs),
+    Audit(AuditArgs),
+    Deploy(DeployArgs),
+    Mode(ModeArgs),
+    Security(SecurityArgs),
+    Limits(LimitsArgs),
+    Snapshot(SnapshotArgs),
+    Restore(RestoreArgs),
 }
 
 #[derive(Args)]
 struct ServeArgs {
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind: String,
+    #[arg(long, default_value_t = false)]
+    airgapped: bool,
+    #[arg(long, default_value_t = false)]
+    require_signed_config: bool,
 }
 
 #[derive(Args)]
@@ -95,96 +59,215 @@ enum ModelsCommands {
     List,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, clap::ValueEnum, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-enum RuntimeMode {
-    Tiny,
-    Local,
-    Performance,
-    Gateway,
-    Dev,
+#[derive(Args)]
+struct VerifyBinaryArgs {
+    file: PathBuf,
+    #[arg(long)]
+    manifest: Option<PathBuf>,
 }
 
-impl RuntimeMode {
-    fn description(self) -> &'static str {
-        match self {
-            Self::Tiny => "CPU-only minimal footprint; local HTTP/llama.cpp when available; no vLLM/LiteLLM",
-            Self::Local => "Safe default: local-first with optional vLLM/LiteLLM checks; cloud disabled",
-            Self::Performance => "GPU/server oriented: vLLM preferred, higher memory budget, preloading enabled",
-            Self::Gateway => "LiteLLM proxy eligible, but local routes first and cloud disabled unless explicitly enabled",
-            Self::Dev => "Verbose diagnostics for local development; no production runtime mocks",
+#[derive(Args)]
+struct ConfigArgs {
+    #[command(subcommand)]
+    command: ConfigCommands,
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    Sign(ConfigSignArgs),
+    Verify(ConfigVerifyArgs),
+    Migrate(ConfigMigrateArgs),
+}
+
+#[derive(Args)]
+struct ConfigSignArgs {
+    #[arg(long, default_value = ".sawyer/config.json")]
+    file: PathBuf,
+    #[arg(long, default_value = "SAWYER_CONFIG_SIGNING_KEY")]
+    key_env: String,
+}
+
+#[derive(Args)]
+struct ConfigVerifyArgs {
+    #[arg(long, default_value = ".sawyer/config.json")]
+    file: PathBuf,
+    #[arg(long, default_value = "SAWYER_CONFIG_SIGNING_KEY")]
+    key_env: String,
+    #[arg(long, default_value_t = false)]
+    require_signed: bool,
+}
+
+#[derive(Args)]
+struct ConfigMigrateArgs {
+    #[arg(long, default_value = ".sawyer/config.json")]
+    file: PathBuf,
+    #[arg(long)]
+    target_version: Option<u32>,
+}
+
+#[derive(Args)]
+struct AuditArgs {
+    #[command(subcommand)]
+    command: AuditCommands,
+}
+
+#[derive(Subcommand)]
+enum AuditCommands {
+    Verify,
+    Export(AuditExportArgs),
+}
+
+#[derive(Args)]
+struct AuditExportArgs {
+    out: PathBuf,
+}
+
+#[derive(Args)]
+struct DeployArgs {
+    #[command(subcommand)]
+    command: DeployCommands,
+}
+
+#[derive(Subcommand)]
+enum DeployCommands {
+    Explain,
+    Validate,
+}
+
+#[derive(Args)]
+struct ModeArgs {
+    #[command(subcommand)]
+    command: ModeCommands,
+}
+
+#[derive(Subcommand)]
+enum ModeCommands {
+    Set { mode: DeploymentMode },
+    Current,
+}
+
+#[derive(Args)]
+struct SecurityArgs {
+    #[command(subcommand)]
+    command: SecurityCommands,
+}
+
+#[derive(Subcommand)]
+enum SecurityCommands {
+    Audit,
+}
+
+#[derive(Args)]
+struct LimitsArgs {
+    #[command(subcommand)]
+    command: LimitsCommands,
+}
+
+#[derive(Subcommand)]
+enum LimitsCommands {
+    Show,
+    Set(LimitsSetArgs),
+}
+
+#[derive(Args)]
+struct LimitsSetArgs {
+    #[arg(long)]
+    max_concurrent_tasks: u32,
+    #[arg(long)]
+    max_memory_mb_per_task: u32,
+    #[arg(long)]
+    max_tokens_per_request: u32,
+    #[arg(long)]
+    max_cpu_ms_per_task: u32,
+}
+
+#[derive(Args)]
+struct SnapshotArgs {
+    #[arg(long, default_value = "./snapshot.json")]
+    out: PathBuf,
+}
+
+#[derive(Args)]
+struct RestoreArgs {
+    file: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum DeploymentMode {
+    SingleNode,
+    LocalCluster,
+    Airgapped,
+    ServerMode,
+    PortableMode,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct RuntimeLimits {
+    max_concurrent_tasks: u32,
+    max_memory_mb_per_task: u32,
+    max_tokens_per_request: u32,
+    max_cpu_ms_per_task: u32,
+}
+
+impl Default for RuntimeLimits {
+    fn default() -> Self {
+        Self {
+            max_concurrent_tasks: 32,
+            max_memory_mb_per_task: 2048,
+            max_tokens_per_request: 8192,
+            max_cpu_ms_per_task: 30_000,
         }
     }
-
-    fn explain(self) -> String {
-        format!("{} => {}", self, self.description())
-    }
-
-    fn all() -> &'static [RuntimeMode] {
-        const MODES: [RuntimeMode; 5] = [
-            RuntimeMode::Tiny,
-            RuntimeMode::Local,
-            RuntimeMode::Performance,
-            RuntimeMode::Gateway,
-            RuntimeMode::Dev,
-        ];
-        &MODES
-    }
 }
 
-impl fmt::Display for RuntimeMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let label = match self {
-            Self::Tiny => "tiny",
-            Self::Local => "local",
-            Self::Performance => "performance",
-            Self::Gateway => "gateway",
-            Self::Dev => "dev",
-        };
-        write!(f, "{label}")
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct RuntimeConfigFile {
+    version: u32,
+    mode: DeploymentMode,
+    allow_cloud: bool,
+    enforce_signed_config: bool,
+    allow_network: bool,
+    provider_local_only: bool,
+}
+
+impl Default for RuntimeConfigFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            mode: DeploymentMode::SingleNode,
+            allow_cloud: false,
+            enforce_signed_config: false,
+            allow_network: true,
+            provider_local_only: true,
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct HardwareSnapshot {
-    os: String,
-    ram_gb: Option<u64>,
-    vram_gb: Option<u64>,
-    battery_sensitive: bool,
-    thermal_constrained: bool,
+#[derive(Debug, Serialize, Deserialize)]
+struct ReleaseManifest {
+    binary_path: String,
+    binary_sha256: String,
+    version: String,
+    commit_hash: String,
+    build_timestamp_unix: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModelRecommendation {
-    model_class: &'static str,
-    quantization: &'static str,
-    performance_band: &'static str,
-    provider: &'static str,
-    reason: String,
+#[derive(Debug, Serialize, Deserialize)]
+struct AuditRecord {
+    ts_unix: u64,
+    event: String,
+    prev_hash: String,
+    hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ProviderRow {
-    provider: &'static str,
-    available: bool,
-    best_for: &'static str,
-    cost: &'static str,
-    privacy: &'static str,
-    speed: &'static str,
-    setup: &'static str,
-    reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RoutingExplain {
-    selected_provider: String,
-    rejected_providers: Vec<String>,
-    reason_codes: Vec<String>,
-    privacy_decision: String,
-    cost_decision: String,
-    speed_decision: String,
-    fallback_decision: String,
-    degraded: bool,
+#[derive(Debug, Serialize, Deserialize)]
+struct SnapshotFile {
+    config: RuntimeConfigFile,
+    limits: RuntimeLimits,
+    audit_records: Vec<AuditRecord>,
+    cluster_registry: serde_json::Value,
+    adaptive_state: serde_json::Value,
 }
 
 #[tokio::main]
@@ -194,362 +277,315 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Doctor => doctor(),
-        Commands::Bench(args) => match args.command {
-            BenchCommands::Quick => bench_quick(),
-            BenchCommands::Compare => bench_compare(),
-        },
-        Commands::Calibrate => calibrate(),
-        Commands::Stats(args) => stats(args),
-        Commands::Explain(args) => match args.command {
-            ExplainCommands::Adaptive => explain_adaptive(),
-        },
-        Commands::Sim(sim) => match sim.command {
-            SimCommands::Run => sim_run(),
-        },
-        Commands::Serve(args) => {
-            println!("starting server on {}", args.bind);
-            serve(&args.bind, ServerState::default()).await
-        }
-        Commands::Models(models) => match models.command {
+        Commands::Serve(args) => serve_cmd(args).await,
+        Commands::Models(args) => match args.command {
             ModelsCommands::List => models_list(),
         },
+        Commands::VerifyBinary(args) => verify_binary(args),
+        Commands::Config(args) => config_cmd(args),
+        Commands::Audit(args) => audit_cmd(args),
+        Commands::Deploy(args) => deploy_cmd(args),
+        Commands::Mode(args) => mode_cmd(args),
+        Commands::Security(args) => security_cmd(args),
+        Commands::Limits(args) => limits_cmd(args),
+        Commands::Snapshot(args) => snapshot_cmd(args),
+        Commands::Restore(args) => restore_cmd(args),
     }
 }
 
-fn mode(args: ModeArgs) -> Result<()> {
+fn doctor() -> Result<()> {
+    let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
+    runtime.step();
+    let cfg = load_runtime_config()?;
+    let limits = load_limits()?;
+
+    println!("Sawyer doctor report");
+    println!("- tick: {}", runtime.tick());
+    println!("- mode: {:?}", cfg.mode);
+    println!("- allow_cloud: {}", cfg.allow_cloud);
+    println!("- allow_network: {}", cfg.allow_network);
+    println!("- enforce_signed_config: {}", cfg.enforce_signed_config);
+    println!("- max_concurrent_tasks: {}", limits.max_concurrent_tasks);
+    Ok(())
+}
+
+async fn serve_cmd(args: ServeArgs) -> Result<()> {
+    let cfg = load_runtime_config()?;
+    if args.require_signed_config || cfg.enforce_signed_config {
+        let verify = verify_config_internal(&ConfigVerifyArgs {
+            file: config_path(),
+            key_env: "SAWYER_CONFIG_SIGNING_KEY".to_string(),
+            require_signed: true,
+        })?;
+        if !verify {
+            bail!("config signature verification failed in strict mode");
+        }
+    } else if signature_path(&config_path()).exists() {
+        let _ = verify_config_internal(&ConfigVerifyArgs {
+            file: config_path(),
+            key_env: "SAWYER_CONFIG_SIGNING_KEY".to_string(),
+            require_signed: false,
+        })?;
+    } else {
+        eprintln!("warning: config is unsigned (allowed outside strict mode)");
+    }
+
+    let addr: SocketAddr = args.bind.parse().context("invalid --bind address")?;
+    if args.airgapped || cfg.mode == DeploymentMode::Airgapped {
+        enforce_airgapped(addr, &cfg)?;
+    }
+
+    println!("starting server on {}", args.bind);
+    serve(&args.bind, ServerState::default()).await
+}
+
+fn verify_binary(args: VerifyBinaryArgs) -> Result<()> {
+    let digest = file_sha256(&args.file)?;
+    let manifest_path = args
+        .manifest
+        .unwrap_or_else(|| args.file.with_extension("manifest.json"));
+
+    let manifest: ReleaseManifest = serde_json::from_slice(
+        &fs::read(&manifest_path)
+            .with_context(|| format!("manifest not found: {}", manifest_path.display()))?,
+    )?;
+
+    if manifest.binary_sha256 != digest {
+        bail!(
+            "binary hash mismatch: expected {}, got {}",
+            manifest.binary_sha256,
+            digest
+        );
+    }
+
+    println!("verified binary integrity");
+    println!("- file: {}", args.file.display());
+    println!("- sha256: {}", digest);
+    println!("- version: {}", manifest.version);
+    println!("- commit: {}", manifest.commit_hash);
+    Ok(())
+}
+
+fn config_cmd(args: ConfigArgs) -> Result<()> {
     match args.command {
-        ModeCommands::List => {
-            for mode in RuntimeMode::all() {
-                println!("{mode:11} {}", mode.description());
+        ConfigCommands::Sign(sign_args) => config_sign(sign_args),
+        ConfigCommands::Verify(verify_args) => {
+            let valid = verify_config_internal(&verify_args)?;
+            if !valid {
+                bail!("config verification failed");
             }
             Ok(())
         }
-        ModeCommands::Explain { mode } => {
-            println!("{}", mode.explain());
+        ConfigCommands::Migrate(migrate_args) => config_migrate(migrate_args),
+    }
+}
+
+fn config_sign(args: ConfigSignArgs) -> Result<()> {
+    let key = env::var(&args.key_env)
+        .with_context(|| format!("missing key env var: {}", args.key_env))?;
+    let bytes = fs::read(&args.file)?;
+    let signature = sign_bytes(&bytes, &key)?;
+    let sig_path = signature_path(&args.file);
+    fs::write(&sig_path, signature)?;
+    println!("config signed: {}", sig_path.display());
+    Ok(())
+}
+
+fn verify_config_internal(args: &ConfigVerifyArgs) -> Result<bool> {
+    let sig_path = signature_path(&args.file);
+    if !sig_path.exists() {
+        if args.require_signed {
+            bail!("missing config signature: {}", sig_path.display());
+        }
+        eprintln!("warning: config unsigned");
+        return Ok(false);
+    }
+
+    let key = env::var(&args.key_env)
+        .with_context(|| format!("missing key env var: {}", args.key_env))?;
+    let bytes = fs::read(&args.file)?;
+    let expected = sign_bytes(&bytes, &key)?;
+    let actual = fs::read_to_string(&sig_path)?;
+    let valid = expected.trim() == actual.trim();
+    println!("config verify: valid={valid}");
+    Ok(valid)
+}
+
+fn config_migrate(args: ConfigMigrateArgs) -> Result<()> {
+    let mut cfg = load_runtime_config()?;
+    let target = args.target_version.unwrap_or(1);
+
+    if cfg.version > target {
+        bail!("downgrade migration is not supported");
+    }
+    cfg.version = target;
+
+    write_json(&args.file, &cfg)?;
+    println!("config migrated to version {}", cfg.version);
+    Ok(())
+}
+
+fn audit_cmd(args: AuditArgs) -> Result<()> {
+    match args.command {
+        AuditCommands::Verify => audit_verify(),
+        AuditCommands::Export(export_args) => audit_export(export_args),
+    }
+}
+
+fn audit_verify() -> Result<()> {
+    let records = read_audit_records()?;
+    let mut prev = "GENESIS".to_string();
+    for (idx, record) in records.iter().enumerate() {
+        if record.prev_hash != prev {
+            bail!("audit chain broken at index {idx}: prev_hash mismatch");
+        }
+        let expected = audit_hash(record.ts_unix, &record.event, &record.prev_hash);
+        if record.hash != expected {
+            bail!("audit chain broken at index {idx}: hash mismatch");
+        }
+        prev = record.hash.clone();
+    }
+    println!("audit chain valid: {} entries", records.len());
+    Ok(())
+}
+
+fn audit_export(args: AuditExportArgs) -> Result<()> {
+    let records = read_audit_records()?;
+    write_json(&args.out, &records)?;
+    println!(
+        "exported {} audit records to {}",
+        records.len(),
+        args.out.display()
+    );
+    Ok(())
+}
+
+fn deploy_cmd(args: DeployArgs) -> Result<()> {
+    match args.command {
+        DeployCommands::Explain => {
+            for mode in [
+                DeploymentMode::SingleNode,
+                DeploymentMode::LocalCluster,
+                DeploymentMode::Airgapped,
+                DeploymentMode::ServerMode,
+                DeploymentMode::PortableMode,
+            ] {
+                println!("{}", describe_mode(mode));
+            }
             Ok(())
         }
+        DeployCommands::Validate => {
+            let cfg = load_runtime_config()?;
+            validate_mode(cfg.mode, &cfg)?;
+            println!("deployment config valid for mode: {:?}", cfg.mode);
+            Ok(())
+        }
+    }
+}
+
+fn mode_cmd(args: ModeArgs) -> Result<()> {
+    let mut cfg = load_runtime_config()?;
+    match args.command {
         ModeCommands::Set { mode } => {
-            save_mode(mode)?;
-            println!("mode set to {mode}");
+            cfg.mode = mode;
+            if mode == DeploymentMode::Airgapped {
+                cfg.allow_network = false;
+                cfg.allow_cloud = false;
+                cfg.provider_local_only = true;
+            }
+            write_json(&config_path(), &cfg)?;
+            println!("mode set to {:?}", mode);
             Ok(())
         }
         ModeCommands::Current => {
-            println!("{}", load_mode()?);
+            println!("{:?}", cfg.mode);
             Ok(())
         }
     }
 }
 
-fn doctor(args: DoctorArgs) -> Result<()> {
+fn security_cmd(args: SecurityArgs) -> Result<()> {
     match args.command {
-        Some(DoctorCommands::Deps) => doctor_deps(),
-        None => {
-            let cpu = detect_cpu_features();
-            let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
-            runtime.step();
-            println!("Sawyer doctor report");
-            println!("- tick: {}", runtime.tick());
-            println!(
-                "- CPU avx2={} avx512f={} neon={}",
-                cpu.avx2, cpu.avx512f, cpu.neon
-            );
-            println!("- mode: {}", load_mode()?);
-            Ok(())
-        }
-    }
-}
+        SecurityCommands::Audit => {
+            println!("security audit report");
+            println!("- dependency allowlist: docs/security/dependency-policy.md");
 
-fn doctor_deps() -> Result<()> {
-    let deps = [
-        ("rust", true, "required"),
-        (
-            "llama.cpp",
-            port_open("127.0.0.1:8081"),
-            "optional provider",
-        ),
-        ("vLLM", port_open("127.0.0.1:8000"), "optional provider"),
-        ("LiteLLM", port_open("127.0.0.1:4000"), "optional provider"),
-        ("node/npm", false, "not required for single-binary runtime"),
-    ];
-    println!("Dependency | Status | Type");
-    println!("-----------|--------|-----");
-    for (dep, ok, kind) in deps {
-        let status = if ok { "present" } else { "missing/disabled" };
-        println!("{dep:10} | {status:14} | {kind}");
-    }
-    Ok(())
-}
-
-fn bench(args: BenchArgs) -> Result<()> {
-    match args.command.unwrap_or(BenchCommands::Quick) {
-        BenchCommands::Quick => bench_quick(),
-        BenchCommands::Compare => bench_compare(),
-    }
-}
-
-fn bench_quick() -> Result<()> {
-    let mut out = Vec::new();
-
-    let queue_start = Instant::now();
-    let mut events = Vec::with_capacity(10_000);
-    for i in 0..10_000 {
-        events.push(i);
-    }
-    let queue_elapsed = queue_start.elapsed();
-    out.push((
-        "event_queue_ops_per_sec",
-        10_000_f64 / queue_elapsed.as_secs_f64(),
-    ));
-
-    let reset_start = Instant::now();
-    events.clear();
-    let reset_elapsed = reset_start.elapsed();
-    out.push(("arena_reset_ns", reset_elapsed.as_nanos() as f64));
-
-    let lhs = vec![1.0_f32; 1024];
-    let rhs = vec![2.0_f32; 1024];
-    let dot_start = Instant::now();
-    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
-    let dot_elapsed = dot_start.elapsed();
-    out.push(("scalar_dot_ns", dot_elapsed.as_nanos() as f64));
-
-    out.push(("provider_health_llama_ms", latency_ms("127.0.0.1:8081")));
-    out.push(("provider_health_vllm_ms", latency_ms("127.0.0.1:8000")));
-    out.push(("provider_health_litellm_ms", latency_ms("127.0.0.1:4000")));
-
-    println!("bench quick (measured values only)");
-    println!("dot_product_value={dot}");
-    for (name, value) in out {
-        println!("{name}={value:.2}");
-    }
-    println!("recommendation=use measured provider latency + mode policy; no synthetic claims");
-    Ok(())
-}
-
-fn bench_compare() -> Result<()> {
-    println!("provider | health_latency_ms");
-    println!("llama.cpp | {:.2}", latency_ms("127.0.0.1:8081"));
-    println!("vllm | {:.2}", latency_ms("127.0.0.1:8000"));
-    println!("litellm | {:.2}", latency_ms("127.0.0.1:4000"));
-    Ok(())
-}
-
-fn quickstart() -> Result<()> {
-    let mode = load_mode()?;
-    let hw = detect_hardware();
-    let rec = recommend_model(&hw, "general");
-    let compare = comparison(mode);
-
-    println!("SawyerCore is a local-first AI runtime.");
-    println!("It routes tasks deterministically with policy and audit visibility.");
-    println!("Cloud is disabled by default; local providers are preferred.");
-    println!("If no model is available, Sawyer stays truthful with degraded status.");
-    println!("Current mode: {mode}");
-    println!(
-        "Recommended model: {} {}",
-        rec.model_class, rec.quantization
-    );
-    println!("Provider status:");
-    for row in compare {
-        println!(
-            "- {}: available={} ({})",
-            row.provider, row.available, row.reason
-        );
-    }
-    println!("Next command: sawyer up");
-    Ok(())
-}
-
-fn bench_quick() -> Result<()> {
-    let lhs = vec![1.0_f32; 256];
-    let rhs = vec![2.0_f32; 256];
-    let dot = dot_product(&lhs, &rhs)?;
-    println!("bench quick: dot_product={dot}");
-    Ok(())
-}
-
-fn bench_compare() -> Result<()> {
-    let lhs = vec![1.0_f32; 1024];
-    let rhs = vec![1.0_f32; 1024];
-    let baseline = dot_product(&lhs, &rhs)?;
-    let candidate = dot_product(&lhs, &rhs)?;
-    println!("bench compare");
-    println!("- baseline_dot={baseline}");
-    println!("- candidate_dot={candidate}");
-    println!("- delta={:.4}", candidate - baseline);
-    Ok(())
-}
-
-fn calibrate() -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
-    let providers = history.metrics_per_provider();
-
-    println!("calibration profile");
-    println!("- telemetry_file={}", telemetry_path.display());
-    println!("- providers_seen={}", providers.len());
-    for (provider, metrics) in providers {
-        println!(
-            "- provider={} p50_ms={} p95_ms={} throughput_rps={:.2}",
-            provider, metrics.p50_latency_ms, metrics.p95_latency_ms, metrics.throughput_rps
-        );
-    }
-    Ok(())
-}
-
-fn stats(args: StatsArgs) -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
-
-    match args.command {
-        StatsCommands::Providers => {
-            for (provider, metrics) in history.metrics_per_provider() {
-                println!(
-                    "{} samples={} avg_ms={} p50={} p95={} success={:.2} fail={:.2} timeout={:.2}",
-                    provider,
-                    metrics.samples,
-                    metrics.avg_latency_ms,
-                    metrics.p50_latency_ms,
-                    metrics.p95_latency_ms,
-                    metrics.success_rate,
-                    metrics.failure_rate,
-                    metrics.timeout_rate
-                );
-            }
-        }
-        StatsCommands::Tasks => {
-            for (task, summary) in history.task_summaries() {
-                println!(
-                    "{} best={} worst={}",
-                    task, summary.best_provider, summary.worst_provider
-                );
-            }
-        }
-        StatsCommands::Failures => {
-            for (provider, metrics) in history.metrics_per_provider() {
-                if metrics.failure_rate > 0.0 {
-                    println!(
-                        "{} fail_rate={:.2} timeout_rate={:.2}",
-                        provider, metrics.failure_rate, metrics.timeout_rate
-                    );
+            let cargo_audit = Command::new("cargo").arg("audit").output();
+            match cargo_audit {
+                Ok(out) => {
+                    print!("{}", String::from_utf8_lossy(&out.stdout));
+                    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+                    if !out.status.success() {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        if stderr.contains("no such command: `audit`") {
+                            println!("- cargo-audit command not installed; skipping CVE scan");
+                        } else {
+                            bail!("cargo audit reported vulnerabilities or an execution error");
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("- cargo-audit unavailable; install cargo-audit for CVE scanning");
                 }
             }
-        }
-    }
 
-    Ok(())
-}
-
-fn explain_adaptive() -> Result<()> {
-    let telemetry_path = default_telemetry_path();
-    let events = TelemetryEngine::load_jsonl(&telemetry_path)?;
-    let mut history = HistoryIndex::new(100);
-    for event in events {
-        history.push(event);
-    }
-
-    let explain = history.explain_adaptive("llama.cpp", "chat", &AdaptiveConfig::default());
-    println!("adaptive explanation");
-    println!("- changed={}", explain.changed);
-    println!("- what_changed={}", explain.what_changed);
-    println!("- why={}", explain.why);
-    println!("- telemetry_basis={}", explain.telemetry_basis);
-    println!("- confidence={:.2}", explain.confidence);
-    Ok(())
-}
-
-fn load_mode() -> Result<RuntimeMode> {
-    let path = state_dir().join(MODE_FILE);
-    if !path.exists() {
-        return Ok(DEFAULT_MODE);
-    }
-    let mode = fs::read_to_string(path)?.trim().to_string();
-    parse_mode(&mode).with_context(|| format!("invalid saved mode value: {mode}"))
-}
-
-fn parse_mode(input: &str) -> Result<RuntimeMode> {
-    match input {
-        "tiny" => Ok(RuntimeMode::Tiny),
-        "local" => Ok(RuntimeMode::Local),
-        "performance" => Ok(RuntimeMode::Performance),
-        "gateway" => Ok(RuntimeMode::Gateway),
-        "dev" => Ok(RuntimeMode::Dev),
-        _ => anyhow::bail!("unsupported mode: {input}"),
-    }
-}
-
-fn port_open(addr: &str) -> bool {
-    match addr.parse::<SocketAddr>() {
-        Ok(socket) => TcpStream::connect_timeout(&socket, Duration::from_millis(80)).is_ok(),
-        Err(_) => false,
-    }
-}
-
-fn latency_ms(addr: &str) -> f64 {
-    match addr.parse::<SocketAddr>() {
-        Ok(socket) => {
-            let start = Instant::now();
-            if TcpStream::connect_timeout(&socket, Duration::from_millis(300)).is_ok() {
-                start.elapsed().as_secs_f64() * 1000.0
-            } else {
-                -1.0
+            let tree = Command::new("cargo")
+                .args(["tree", "--workspace"])
+                .status()?;
+            if !tree.success() {
+                bail!("cargo tree failed");
             }
+            println!(
+                "- license and unused dependency checks require cargo-deny/cargo-udeps tooling"
+            );
+            Ok(())
         }
-        Err(_) => -1.0,
     }
 }
 
-fn sim_run() -> Result<()> {
-    let mut runner = ScenarioRunner::new(1234);
-    runner.push_event(SimEvent {
-        tick: 1,
-        agent_id: 1,
-        payload: "start".into(),
-    });
-    runner.push_event(SimEvent {
-        tick: 2,
-        agent_id: 1,
-        payload: "step".into(),
-    });
+fn limits_cmd(args: LimitsArgs) -> Result<()> {
+    match args.command {
+        LimitsCommands::Show => {
+            let limits = load_limits()?;
+            println!("{}", serde_json::to_string_pretty(&limits)?);
+            Ok(())
+        }
+        LimitsCommands::Set(set) => {
+            let limits = RuntimeLimits {
+                max_concurrent_tasks: set.max_concurrent_tasks,
+                max_memory_mb_per_task: set.max_memory_mb_per_task,
+                max_tokens_per_request: set.max_tokens_per_request,
+                max_cpu_ms_per_task: set.max_cpu_ms_per_task,
+            };
+            write_json(&limits_path(), &limits)?;
+            println!("runtime limits updated");
+            Ok(())
+        }
+    }
+}
 
-    let mut agents = vec![Agent::new(1)];
-    let (replay, metrics) = runner.run(&mut agents);
+fn snapshot_cmd(args: SnapshotArgs) -> Result<()> {
+    let snapshot = SnapshotFile {
+        config: load_runtime_config()?,
+        limits: load_limits()?,
+        audit_records: read_audit_records()?,
+        adaptive_state: serde_json::json!({"status": "not-captured-in-v1"}),
+        cluster_registry: serde_json::json!({"nodes": []}),
+    };
+    write_json(&args.out, &snapshot)?;
+    println!("snapshot written: {}", args.out.display());
+    Ok(())
+}
 
-    let mut telemetry = TelemetryEngine::new(TelemetryConfig {
-        jsonl_path: default_telemetry_path(),
-        rolling_window_size: 100,
-        archive_path: None,
-    })?;
-    telemetry.record(RequestTelemetry {
-        request_id: format!("sim-{}", replay.seed),
-        timestamp_ms: replay.seed,
-        task_type: "simulation".to_string(),
-        input_size: replay.events.len(),
-        selected_provider: "sim-local".to_string(),
-        rejected_providers: vec![],
-        latency_ms: metrics.latency_ms as u64,
-        cost_usd_micros: Some(0),
-        success: true,
-        degraded: false,
-        timeout: false,
-        tokens_used: None,
-        memory_snapshot: None,
-        device_profile: None,
-    })?;
+fn restore_cmd(args: RestoreArgs) -> Result<()> {
+    let snapshot: SnapshotFile = serde_json::from_slice(&fs::read(&args.file)?)?;
+    validate_mode(snapshot.config.mode, &snapshot.config)?;
 
-    println!("sim run complete");
-    println!("- seed: {}", replay.seed);
-    println!("- events: {}", replay.events.len());
-    println!("- latency_ms: {}", metrics.latency_ms);
-    println!("- events_per_sec: {:.2}", metrics.events_per_sec);
+    write_json(&config_path(), &snapshot.config)?;
+    write_json(&limits_path(), &snapshot.limits)?;
+    write_audit_records(&snapshot.audit_records)?;
+
+    println!("snapshot restored from {}", args.file.display());
     Ok(())
 }
 
@@ -564,6 +600,190 @@ fn models_list() -> Result<()> {
     Ok(())
 }
 
-fn default_telemetry_path() -> PathBuf {
-    PathBuf::from("./var/telemetry/requests.jsonl")
+fn state_dir() -> PathBuf {
+    PathBuf::from(env::var("SAWYER_STATE_DIR").unwrap_or_else(|_| ".sawyer".to_string()))
+}
+
+fn config_path() -> PathBuf {
+    state_dir().join("config.json")
+}
+
+fn limits_path() -> PathBuf {
+    state_dir().join("limits.json")
+}
+
+fn audit_path() -> PathBuf {
+    state_dir().join("audit").join("log.jsonl")
+}
+
+fn signature_path(config: &Path) -> PathBuf {
+    let mut path = config.to_path_buf();
+    path.set_extension("json.sig");
+    path
+}
+
+fn load_runtime_config() -> Result<RuntimeConfigFile> {
+    let path = config_path();
+    if !path.exists() {
+        let cfg = RuntimeConfigFile::default();
+        write_json(&path, &cfg)?;
+        return Ok(cfg);
+    }
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+fn load_limits() -> Result<RuntimeLimits> {
+    let path = limits_path();
+    if !path.exists() {
+        let limits = RuntimeLimits::default();
+        write_json(&path, &limits)?;
+        return Ok(limits);
+    }
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut f = File::create(path)?;
+    let body = serde_json::to_vec_pretty(value)?;
+    f.write_all(&body)?;
+    f.write_all(b"\n")?;
+    Ok(())
+}
+
+fn file_sha256(path: &Path) -> Result<String> {
+    let output = Command::new("sha256sum")
+        .arg(path)
+        .output()
+        .context("sha256sum missing")?;
+    if !output.status.success() {
+        bail!("sha256sum failed for {}", path.display());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let hash = stdout
+        .split_whitespace()
+        .next()
+        .context("unable to parse sha256sum output")?;
+    Ok(hash.to_string())
+}
+
+fn sha256_bytes(input: &[u8]) -> Result<String> {
+    let mut child = Command::new("sha256sum")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .context("sha256sum missing")?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input)?;
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        bail!("sha256sum failed");
+    }
+    let hash = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .next()
+        .context("unable to parse sha256sum output")?
+        .to_string();
+    Ok(hash)
+}
+
+fn sign_bytes(payload: &[u8], key: &str) -> Result<String> {
+    let mut data = Vec::with_capacity(payload.len() + key.len());
+    data.extend_from_slice(payload);
+    data.extend_from_slice(key.as_bytes());
+    sha256_bytes(&data)
+}
+
+fn read_audit_records() -> Result<Vec<AuditRecord>> {
+    let path = audit_path();
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut out = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        out.push(serde_json::from_str::<AuditRecord>(&line)?);
+    }
+    Ok(out)
+}
+
+fn write_audit_records(records: &[AuditRecord]) -> Result<()> {
+    let path = audit_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut f = File::create(path)?;
+    for r in records {
+        let line = serde_json::to_string(r)?;
+        f.write_all(line.as_bytes())?;
+        f.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
+fn audit_hash(ts_unix: u64, event: &str, prev_hash: &str) -> String {
+    let payload = format!("{ts_unix}:{event}:{prev_hash}");
+    sha256_bytes(payload.as_bytes()).unwrap_or_else(|_| "HASH_ERROR".to_string())
+}
+
+fn enforce_airgapped(bind: SocketAddr, cfg: &RuntimeConfigFile) -> Result<()> {
+    let localhost = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    if bind.ip() != localhost {
+        bail!("airgapped mode requires localhost bind address");
+    }
+    if cfg.allow_network {
+        bail!("airgapped mode requires allow_network=false");
+    }
+    if cfg.allow_cloud {
+        bail!("airgapped mode requires allow_cloud=false");
+    }
+    if !cfg.provider_local_only {
+        bail!("airgapped mode requires provider_local_only=true");
+    }
+    Ok(())
+}
+
+fn validate_mode(mode: DeploymentMode, cfg: &RuntimeConfigFile) -> Result<()> {
+    match mode {
+        DeploymentMode::SingleNode => Ok(()),
+        DeploymentMode::LocalCluster => Ok(()),
+        DeploymentMode::Airgapped => {
+            enforce_airgapped(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0), cfg)
+        }
+        DeploymentMode::ServerMode => {
+            if cfg.enforce_signed_config {
+                Ok(())
+            } else {
+                bail!("server-mode requires enforce_signed_config=true")
+            }
+        }
+        DeploymentMode::PortableMode => Ok(()),
+    }
+}
+
+fn describe_mode(mode: DeploymentMode) -> String {
+    match mode {
+        DeploymentMode::SingleNode => "single-node: bind localhost, info logging, local providers preferred, moderate security".to_string(),
+        DeploymentMode::LocalCluster => "local-cluster: bind RFC1918/internal, warn logging, local gateway providers, strict policy".to_string(),
+        DeploymentMode::Airgapped => "airgapped: localhost-only, no network or DNS, local provider only, strictest security".to_string(),
+        DeploymentMode::ServerMode => "server-mode: operator bind, JSON logs, signed config required, explicit cloud opt-in only".to_string(),
+        DeploymentMode::PortableMode => "portable-mode: localhost-first, reduced logging noise, local provider required by default".to_string(),
+    }
+}
+
+#[allow(dead_code)]
+fn now_unix() -> Result<u64> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| anyhow!("system time error: {e}"))?
+        .as_secs())
 }
