@@ -22,6 +22,9 @@ export interface ProviderConfig {
   timeoutMs: number;
   retries: number;
   enabled: boolean;
+  model: string;
+  modelAliases?: Record<string, string>;
+  apiKeyEnv?: string;
 }
 
 export interface GovernancePolicy {
@@ -44,6 +47,7 @@ export interface SawyerConfig {
     vllm: ProviderConfig;
     litellm: ProviderConfig;
     cloud: ProviderConfig;
+    llamaCpp: ProviderConfig;
     onnx: ProviderConfig;
     mobileNpu: ProviderConfig;
   };

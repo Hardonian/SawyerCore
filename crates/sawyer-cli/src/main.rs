@@ -86,7 +86,7 @@ fn doctor() -> Result<()> {
 fn bench() -> Result<()> {
     let lhs = vec![1.0_f32; 256];
     let rhs = vec![2.0_f32; 256];
-    let dot = dot_product(&lhs, &rhs)?;
+    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
     println!("bench smoke: dot_product={dot}");
     println!("for full benches run: cargo bench -p sawyer-core");
     Ok(())
