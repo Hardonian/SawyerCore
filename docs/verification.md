@@ -3,26 +3,25 @@
 Run from repository root:
 
 ```bash
-make fmt
-make lint
-make test
-make build
-make bench
-make verify
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --workspace
+npm run lint
+npm run verify:ai
+npm run verify:policy
+npm run verify:runtime
+npm run verify:config
+npm run verify:recommendations
 ```
 
-Smoke test server:
+If npm is unavailable, use the Rust-only fallback:
 
 ```bash
-cargo run -p sawyer-cli -- serve --bind 127.0.0.1:8080
-curl -s http://127.0.0.1:8080/health
-curl -s http://127.0.0.1:8080/status
+./scripts/verify-rust-only.sh
 ```
 
-Smoke test simulation endpoint:
-
-```bash
-curl -s -X POST http://127.0.0.1:8080/sim/run \
-  -H 'content-type: application/json' \
-  -d '{"seed":1,"events":[{"tick":1,"agent_id":1,"payload":"hi"}]}'
-```
+## CI posture
+- CI uses deterministic tests with mocked providers.
+- CI does not require live vLLM/LiteLLM endpoints.
+- Live provider validation is optional and performed locally via `npm run sawyer:doctor`.

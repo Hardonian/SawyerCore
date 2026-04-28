@@ -1,0 +1,30 @@
+{
+  "profile": "local-safe",
+  "bind_host": "127.0.0.1",
+  "private_mode": true,
+  "cloud": {
+    "enabled": false,
+    "fallback": false
+  },
+  "providers": {
+    "vllm": {
+      "enabled_if_reachable": true,
+      "base_url": "http://127.0.0.1:8000/v1",
+      "model": "Qwen/Qwen2.5-3B-Instruct"
+    },
+    "litellm": {
+      "enabled_if_reachable": true,
+      "base_url": "http://127.0.0.1:4000/v1",
+      "model": "local-qwen"
+    },
+    "llamacpp": {
+      "enabled_only_if_model_path_exists": true,
+      "base_url": "http://127.0.0.1:8080/v1",
+      "model_path_env": "SAWYER_LLAMACPP_MODEL_PATH"
+    },
+    "mobile_npu": {
+      "enabled": false,
+      "status": "unavailable unless explicitly registered"
+    }
+  }
+}

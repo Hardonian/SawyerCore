@@ -1,0 +1,22 @@
+{
+  "name": "llamacpp-local",
+  "enabled": false,
+  "bind_host": "127.0.0.1",
+  "port": 8080,
+  "base_url": "http://127.0.0.1:8080/v1",
+  "startup": {
+    "command": "./scripts/start-llamacpp.sh",
+    "timeout_seconds": 45,
+    "health_endpoint": "/health",
+    "model_path_env": "SAWYER_LLAMACPP_MODEL_PATH"
+  },
+  "requirements": {
+    "llama_server_binary": "llama-server",
+    "gguf_model_required": true,
+    "fake_fallback_allowed": false
+  },
+  "safety": {
+    "localhost_only": true,
+    "cloud_disabled": true
+  }
+}

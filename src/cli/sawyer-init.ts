@@ -32,7 +32,7 @@ config.profile = auto ? recommendation.profile : recommendProfile(inventory);
 writeFileSync('sawyer.config.json', JSON.stringify(config, null, 2));
 writeFileSync(
   '.env.sawyer.example',
-  ['VLLM_BASE_URL=http://localhost:8000/v1', 'LITELLM_BASE_URL=http://localhost:4000', 'CLOUD_API_KEY=', 'SAWYER_AI_RECOMMENDATIONS=false'].join('\n')
+  ['VLLM_BASE_URL=http://localhost:8000/v1', 'LITELLM_BASE_URL=http://localhost:4000/v1', 'LLAMACPP_BASE_URL=http://localhost:8081', 'CLOUD_API_KEY=', 'LITELLM_API_KEY=', 'SAWYER_AI_RECOMMENDATIONS=false'].join('\n')
 );
 
 console.log(`Generated sawyer.config.json with profile=${config.profile}`);

@@ -18,11 +18,46 @@ export function safeDefaultConfig(): SawyerConfig {
       enable_thermal_aware_routing: true
     }),
     providers: {
-      vllm: { name: 'vllm', endpoint: 'http://localhost:8000/v1', timeoutMs: 3500, retries: 1, enabled: true },
-      litellm: { name: 'litellm', endpoint: 'http://localhost:4000', timeoutMs: 3500, retries: 1, enabled: false },
-      cloud: { name: 'cloud', timeoutMs: 8000, retries: 1, enabled: false },
-      onnx: { name: 'onnx', timeoutMs: 1500, retries: 1, enabled: true },
-      mobileNpu: { name: 'mobileNpu', timeoutMs: 1200, retries: 1, enabled: false }
+      vllm: {
+        name: 'vllm',
+        endpoint: 'http://localhost:8000/v1',
+        timeoutMs: 3500,
+        retries: 1,
+        enabled: true,
+        model: 'meta-llama/Llama-3.1-8B-Instruct',
+        modelAliases: {
+          chat: 'meta-llama/Llama-3.1-8B-Instruct',
+          summarization: 'meta-llama/Llama-3.1-8B-Instruct',
+          'code-reasoning': 'Qwen/Qwen2.5-Coder-7B-Instruct'
+        }
+      },
+      litellm: {
+        name: 'litellm',
+        endpoint: 'http://localhost:4000/v1',
+        timeoutMs: 3500,
+        retries: 1,
+        enabled: false,
+        model: 'gpt-4o-mini',
+        apiKeyEnv: 'LITELLM_API_KEY'
+      },
+      cloud: {
+        name: 'cloud',
+        timeoutMs: 8000,
+        retries: 1,
+        enabled: false,
+        model: 'gpt-4o-mini',
+        apiKeyEnv: 'CLOUD_API_KEY'
+      },
+      llamaCpp: {
+        name: 'llama.cpp',
+        endpoint: 'http://localhost:8081',
+        timeoutMs: 3500,
+        retries: 1,
+        enabled: false,
+        model: 'llama.cpp-local'
+      },
+      onnx: { name: 'onnx', timeoutMs: 1500, retries: 1, enabled: true, model: 'onnx-default' },
+      mobileNpu: { name: 'mobileNpu', timeoutMs: 1200, retries: 1, enabled: false, model: 'mobile-npu-default' }
     },
     policy: {
       requireAudit: true,
@@ -31,6 +66,7 @@ export function safeDefaultConfig(): SawyerConfig {
       allowModelList: [],
       maxCostPerRequestUsd: 0.02,
       maxTokens: 8192,
+      maxRequestBytes: 1024 * 1024,
       fallbackAllowed: false,
       dataRetention: 'none',
       tenantPermissions: {
