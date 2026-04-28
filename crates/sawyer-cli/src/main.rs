@@ -73,7 +73,7 @@ enum SimCommands {
 #[derive(Args)]
 struct ModelsArgs {
     #[command(subcommand)]
-    command: ModelsCommands,
+    command: SecurityCommands,
 }
 
 #[derive(Subcommand)]
@@ -155,6 +155,53 @@ async fn main() -> Result<()> {
             SmokeCommands::Local { config } => smoke_local(&config),
         },
     }
+
+    let key = env::var(&args.key_env)
+        .with_context(|| format!("missing key env var: {}", args.key_env))?;
+    let bytes = fs::read(&args.file)?;
+    let expected = sign_bytes(&bytes, &key)?;
+    let actual = fs::read_to_string(&sig_path)?;
+    let valid = expected.trim() == actual.trim();
+    println!("config verify: valid={valid}");
+    Ok(valid)
+}
+
+fn config_migrate(args: ConfigMigrateArgs) -> Result<()> {
+    let mut cfg = load_runtime_config()?;
+    let target = args.target_version.unwrap_or(1);
+
+    if cfg.version > target {
+        bail!("downgrade migration is not supported");
+    }
+    cfg.version = target;
+
+    write_json(&args.file, &cfg)?;
+    println!("config migrated to version {}", cfg.version);
+    Ok(())
+}
+
+fn audit_cmd(args: AuditArgs) -> Result<()> {
+    match args.command {
+        AuditCommands::Verify => audit_verify(),
+        AuditCommands::Export(export_args) => audit_export(export_args),
+    }
+}
+
+fn audit_verify() -> Result<()> {
+    let records = read_audit_records()?;
+    let mut prev = "GENESIS".to_string();
+    for (idx, record) in records.iter().enumerate() {
+        if record.prev_hash != prev {
+            bail!("audit chain broken at index {idx}: prev_hash mismatch");
+        }
+        let expected = audit_hash(record.ts_unix, &record.event, &record.prev_hash);
+        if record.hash != expected {
+            bail!("audit chain broken at index {idx}: hash mismatch");
+        }
+        prev = record.hash.clone();
+    }
+    println!("audit chain valid: {} entries", records.len());
+    Ok(())
 }
 
 fn doctor() -> Result<()> {
@@ -400,6 +447,13 @@ fn smoke_local(config_path: &Path) -> Result<()> {
     if !http_health(&provider_addr.0, provider_addr.1, "/health") {
         println!("provider unavailable (truthful degraded state)");
     }
+    let hash = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .next()
+        .context("unable to parse sha256sum output")?
+        .to_string();
+    Ok(hash)
+}
 
     if !Path::new(&cfg.model_path).exists() {
         println!("MODEL_MISSING: {}", cfg.model_path);
