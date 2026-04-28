@@ -1,6 +1,6 @@
 import type { AiTask, InferenceResult, Capability } from '../types/contracts.js';
-import type { ProviderConfig } from '../types/config.js';
-import type { RuntimeProvider, ProviderCapabilities, ProviderTarget, ProviderHealth } from './provider.js';
+import type { RuntimeProvider, ProviderCapabilities, ProviderTarget } from './provider.js';
+import type { SawyerConfig } from '../types/config.js';
 
 interface ProviderOpts {
   name: string;
@@ -12,6 +12,15 @@ interface ProviderOpts {
   baseCostPer1kTokens: number;
   baseLatencyMs: number;
 }
+
+export type OpenAiCompatibleProviderOpts = ProviderOpts & {
+  endpoint: string;
+  timeoutMs: number;
+  retries: number;
+  model: string;
+  modelAliases?: Record<string, string>;
+  apiKey?: string;
+};
 
 class StubProvider implements RuntimeProvider {
   public readonly name: string;
@@ -82,133 +91,229 @@ class StubProvider implements RuntimeProvider {
   }
 }
 
-type FetchLike = typeof fetch;
-
-abstract class OpenAiCompatibleProvider extends StubProvider {
+class OpenAiCompatibleProvider extends StubProvider {
   constructor(
-    opts: ProviderOpts,
-    private readonly providerConfig: ProviderConfig,
-    private readonly fetcher: FetchLike = fetch
+    opts: OpenAiCompatibleProviderOpts,
+    private readonly fetchImpl: typeof fetch = fetch
   ) {
     super(opts);
+    this.endpoint = opts.endpoint.replace(/\/$/, '');
+    this.timeoutMs = opts.timeoutMs;
+    this.retries = opts.retries;
+    this.model = opts.model;
+    this.modelAliases = opts.modelAliases ?? {};
+    this.apiKey = opts.apiKey;
   }
 
-  protected endpoint(path: string): string {
-    return `${this.providerConfig.endpoint ?? ''}${path}`;
+  private readonly endpoint: string;
+  private readonly timeoutMs: number;
+  private readonly retries: number;
+  private readonly model: string;
+  private readonly modelAliases: Record<string, string>;
+  private readonly apiKey?: string;
+
+  override async healthCheck(): Promise<{ healthy: boolean; reason?: string }> {
+    if (!this.endpoint) {
+      return { healthy: false, reason: `${this.name} endpoint not configured` };
+    }
+    try {
+      const models = await this.requestJson<{ data?: Array<{ id: string }> }>('GET', '/models');
+      if (!models.data || models.data.length === 0) {
+        return { healthy: false, reason: `${this.name} has no advertised models` };
+      }
+      return { healthy: true };
+    } catch (error) {
+      return { healthy: false, reason: `${this.name} unreachable: ${(error as Error).message}` };
+    }
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
-    let lastError: string | undefined;
+  override async runInference(task: AiTask): Promise<InferenceResult> {
+    const resolvedModel = this.modelAliases[task.type] ?? this.model;
+    const startedAt = Date.now();
+    const payload = {
+      model: resolvedModel,
+      messages: [{ role: 'user', content: task.input }],
+      max_tokens: Math.min(task.maxContextTokens, this.getCapabilities().maxContextTokens),
+      stream: false
+    };
+    const body = await this.requestJson<{
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { total_tokens?: number };
+    }>('POST', '/chat/completions', payload);
+    const content = body.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error(`${this.name} response missing choices[0].message.content`);
+    }
+    return {
+      output: content,
+      provider: this.name,
+      model: resolvedModel,
+      latencyMs: Math.max(this.estimateLatency(task), Date.now() - startedAt),
+      costUsd: this.estimateCost(task)
+    };
+  }
 
-    for (let attempt = 0; attempt <= this.providerConfig.retries; attempt += 1) {
+  private async requestJson<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+    let attempt = 0;
+    let lastError: Error | undefined;
+    while (attempt <= this.retries) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.providerConfig.timeoutMs);
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
-        const response = await this.fetcher(this.endpoint(path), { ...init, signal: controller.signal });
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (this.apiKey) {
+          headers.authorization = `Bearer ${this.apiKey}`;
+        }
+        const response = await this.fetchImpl(`${this.endpoint}${path}`, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal
+        });
         if (!response.ok) {
-          lastError = `${response.status} ${response.statusText}`;
-          continue;
+          throw new Error(`HTTP ${response.status}`);
         }
         return (await response.json()) as T;
       } catch (error) {
-        lastError = (error as Error).message;
+        lastError = error as Error;
       } finally {
-        clearTimeout(timeout);
+        clearTimeout(timer);
       }
+      attempt += 1;
     }
-
-    throw new Error(`provider unavailable: ${this.name} (${lastError ?? 'unknown transport error'})`);
-  }
-
-  async healthCheck(): Promise<ProviderHealth> {
-    if (!this.providerConfig.enabled) {
-      return { healthy: false, reason: 'provider disabled' };
-    }
-    if (!this.providerConfig.endpoint) {
-      return { healthy: false, reason: 'missing endpoint' };
-    }
-    try {
-      const payload = await this.request<{ data?: Array<{ id: string }> }>('/models', { method: 'GET' });
-      return {
-        healthy: true,
-        models: payload.data?.map((item) => item.id) ?? [],
-        timeoutMs: this.providerConfig.timeoutMs
-      };
-    } catch (error) {
-      return { healthy: false, reason: (error as Error).message, timeoutMs: this.providerConfig.timeoutMs };
-    }
-  }
-
-  async runInference(task: AiTask): Promise<InferenceResult> {
-    const payload = await this.request<{
-      model?: string;
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: { total_tokens?: number };
-    }>('/chat/completions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: `${this.name}-default-model`,
-        messages: [{ role: 'user', content: task.input }],
-        max_tokens: Math.min(task.maxContextTokens, this.getCapabilities().maxContextTokens)
-      })
-    });
-
-    return {
-      output: payload.choices?.[0]?.message?.content ?? `[${this.name}] empty completion`,
-      provider: this.name,
-      model: payload.model ?? `${this.name}-default-model`,
-      latencyMs: this.estimateLatency(task),
-      costUsd: this.estimateCost(task)
-    };
+    throw lastError ?? new Error('request failed');
   }
 }
 
 export class VllmProvider extends OpenAiCompatibleProvider {
-  constructor(config: ProviderConfig = { name: 'vllm', endpoint: 'http://localhost:8000/v1', timeoutMs: 3500, retries: 1, enabled: true }, fetcher?: FetchLike) {
+  constructor(
+    opts: Omit<OpenAiCompatibleProviderOpts, keyof ProviderOpts> & Partial<ProviderOpts>,
+    fetchImpl?: typeof fetch
+  ) {
     super(
       {
-        name: 'vllm',
-        target: 'VLLM_SERVER',
-        capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification', 'planning'],
-        maxContextTokens: 32768,
-        baseCostPer1kTokens: 0.0002,
-        baseLatencyMs: 170
+        name: opts.name ?? 'vllm',
+        target: opts.target ?? 'VLLM_SERVER',
+        capabilities: opts.capabilities ?? ['chat', 'summarization', 'code', 'embedding', 'classification', 'planning'],
+        maxContextTokens: opts.maxContextTokens ?? 32768,
+        supportsPrivateData: opts.supportsPrivateData ?? true,
+        baseCostPer1kTokens: opts.baseCostPer1kTokens ?? 0.0002,
+        baseLatencyMs: opts.baseLatencyMs ?? 170,
+        endpoint: opts.endpoint,
+        timeoutMs: opts.timeoutMs,
+        retries: opts.retries,
+        model: opts.model,
+        modelAliases: opts.modelAliases,
+        apiKey: opts.apiKey
       },
-      config,
-      fetcher
+      fetchImpl
     );
   }
 }
 
 export class LiteLLMProvider extends OpenAiCompatibleProvider {
-  constructor(config: ProviderConfig = { name: 'litellm', endpoint: 'http://localhost:4000/v1', timeoutMs: 3500, retries: 1, enabled: false }, fetcher?: FetchLike) {
+  constructor(
+    opts: Omit<OpenAiCompatibleProviderOpts, keyof ProviderOpts> & Partial<ProviderOpts>,
+    fetchImpl?: typeof fetch
+  ) {
     super(
       {
-        name: 'litellm',
-        target: 'LITELLM_PROXY',
-        capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification', 'vision', 'retrieval', 'planning'],
-        supportsPrivateData: false,
-        maxContextTokens: 128000,
-        baseCostPer1kTokens: 0.001,
-        baseLatencyMs: 260
+        name: opts.name ?? 'litellm',
+        target: opts.target ?? 'LITELLM_PROXY',
+        capabilities: opts.capabilities ?? ['chat', 'summarization', 'code', 'embedding', 'classification', 'vision', 'retrieval', 'planning'],
+        supportsPrivateData: opts.supportsPrivateData ?? false,
+        maxContextTokens: opts.maxContextTokens ?? 128000,
+        baseCostPer1kTokens: opts.baseCostPer1kTokens ?? 0.001,
+        baseLatencyMs: opts.baseLatencyMs ?? 260,
+        endpoint: opts.endpoint,
+        timeoutMs: opts.timeoutMs,
+        retries: opts.retries,
+        model: opts.model,
+        modelAliases: opts.modelAliases,
+        apiKey: opts.apiKey
       },
-      config,
-      fetcher
+      fetchImpl
     );
   }
 }
 
-export class OnnxRuntimeProvider extends StubProvider {
-  constructor() {
+export class LlamaCppProvider extends StubProvider {
+  constructor(
+    private readonly opts: {
+      endpoint: string;
+      timeoutMs: number;
+      retries: number;
+      model: string;
+      fetchImpl?: typeof fetch;
+    }
+  ) {
     super({
-      name: 'onnx',
+      name: 'llama.cpp',
       target: 'LOCAL_CPU',
-      capabilities: ['classification', 'embedding', 'summarization'],
-      maxContextTokens: 4096,
+      capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification'],
+      maxContextTokens: 8192,
+      supportsPrivateData: true,
       baseCostPer1kTokens: 0,
-      baseLatencyMs: 90
+      baseLatencyMs: 340
     });
+  }
+
+  private get fetchImpl(): typeof fetch {
+    return this.opts.fetchImpl ?? fetch;
+  }
+
+  override async healthCheck(): Promise<{ healthy: boolean; reason?: string }> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs);
+      const response = await this.fetchImpl(`${this.opts.endpoint.replace(/\/$/, '')}/health`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!response.ok) {
+        return { healthy: false, reason: `llama.cpp health endpoint HTTP ${response.status}` };
+      }
+      return { healthy: true };
+    } catch (error) {
+      return { healthy: false, reason: `llama.cpp unreachable: ${(error as Error).message}` };
+    }
+  }
+
+  override async runInference(task: AiTask): Promise<InferenceResult> {
+    const startedAt = Date.now();
+    const endpoint = `${this.opts.endpoint.replace(/\/$/, '')}/completion`;
+    let attempt = 0;
+    let lastError: Error | undefined;
+    while (attempt <= this.opts.retries) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs);
+      try {
+        const response = await this.fetchImpl(endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: task.input, n_predict: Math.min(256, task.maxContextTokens) }),
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const body = (await response.json()) as { content?: string };
+        if (!body.content) {
+          throw new Error('missing llama.cpp content');
+        }
+        return {
+          output: body.content,
+          provider: this.name,
+          model: this.opts.model,
+          latencyMs: Math.max(this.estimateLatency(task), Date.now() - startedAt),
+          costUsd: this.estimateCost(task)
+        };
+      } catch (error) {
+        lastError = error as Error;
+      } finally {
+        clearTimeout(timer);
+      }
+      attempt += 1;
+    }
+    throw lastError ?? new Error('llama.cpp inference failed');
   }
 }
 
@@ -226,7 +331,7 @@ export class MobileNpuProvider extends StubProvider {
 }
 
 export class CloudFallbackProvider extends StubProvider {
-  constructor() {
+  constructor(private readonly apiKey: string | undefined) {
     super({
       name: 'cloud',
       target: 'CLOUD_FALLBACK',
@@ -236,6 +341,13 @@ export class CloudFallbackProvider extends StubProvider {
       baseCostPer1kTokens: 0.01,
       baseLatencyMs: 420
     });
+  }
+
+  override async healthCheck(): Promise<{ healthy: boolean; reason?: string }> {
+    if (!this.apiKey) {
+      return { healthy: false, reason: 'cloud provider disabled: missing API key' };
+    }
+    return { healthy: true };
   }
 }
 
@@ -260,4 +372,50 @@ export class MockProvider extends StubProvider {
       costUsd: 0
     };
   }
+}
+
+export function createProvidersFromConfig(config: SawyerConfig): RuntimeProvider[] {
+  const providers: RuntimeProvider[] = [];
+  if (config.providers.mobileNpu.enabled && config.toggles.enable_mobile_npu) {
+    providers.push(new MobileNpuProvider());
+  }
+  if (config.providers.vllm.enabled && config.toggles.enable_vllm && config.providers.vllm.endpoint) {
+    providers.push(
+      new VllmProvider({
+        endpoint: config.providers.vllm.endpoint,
+        timeoutMs: config.providers.vllm.timeoutMs,
+        retries: config.providers.vllm.retries,
+        model: config.providers.vllm.model,
+        modelAliases: config.providers.vllm.modelAliases,
+        apiKey: config.providers.vllm.apiKeyEnv ? process.env[config.providers.vllm.apiKeyEnv] : undefined
+      })
+    );
+  }
+  if (config.providers.litellm.enabled && config.toggles.enable_litellm && config.providers.litellm.endpoint) {
+    providers.push(
+      new LiteLLMProvider({
+        endpoint: config.providers.litellm.endpoint,
+        timeoutMs: config.providers.litellm.timeoutMs,
+        retries: config.providers.litellm.retries,
+        model: config.providers.litellm.model,
+        modelAliases: config.providers.litellm.modelAliases,
+        apiKey: config.providers.litellm.apiKeyEnv ? process.env[config.providers.litellm.apiKeyEnv] : undefined
+      })
+    );
+  }
+  if (config.providers.llamaCpp.enabled && config.providers.llamaCpp.endpoint) {
+    providers.push(
+      new LlamaCppProvider({
+        endpoint: config.providers.llamaCpp.endpoint,
+        timeoutMs: config.providers.llamaCpp.timeoutMs,
+        retries: config.providers.llamaCpp.retries,
+        model: config.providers.llamaCpp.model
+      })
+    );
+  }
+  if (config.providers.cloud.enabled && config.toggles.enable_cloud_fallback && !config.toggles.enable_private_mode) {
+    const apiKey = config.providers.cloud.apiKeyEnv ? process.env[config.providers.cloud.apiKeyEnv] : undefined;
+    providers.push(new CloudFallbackProvider(apiKey));
+  }
+  return providers;
 }
