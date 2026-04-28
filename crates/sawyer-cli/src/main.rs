@@ -10,7 +10,10 @@ use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
 use sawyer_telemetry::{RequestTelemetry, TelemetryConfig, TelemetryEngine};
 
 #[derive(Parser)]
-#[command(name = "sawyer", about = "SawyerCore deterministic edge runtime CLI")]
+#[command(
+    name = "sawyer",
+    about = "SawyerCore deterministic local-first runtime CLI"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -92,6 +95,98 @@ enum ModelsCommands {
     List,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, clap::ValueEnum, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum RuntimeMode {
+    Tiny,
+    Local,
+    Performance,
+    Gateway,
+    Dev,
+}
+
+impl RuntimeMode {
+    fn description(self) -> &'static str {
+        match self {
+            Self::Tiny => "CPU-only minimal footprint; local HTTP/llama.cpp when available; no vLLM/LiteLLM",
+            Self::Local => "Safe default: local-first with optional vLLM/LiteLLM checks; cloud disabled",
+            Self::Performance => "GPU/server oriented: vLLM preferred, higher memory budget, preloading enabled",
+            Self::Gateway => "LiteLLM proxy eligible, but local routes first and cloud disabled unless explicitly enabled",
+            Self::Dev => "Verbose diagnostics for local development; no production runtime mocks",
+        }
+    }
+
+    fn explain(self) -> String {
+        format!("{} => {}", self, self.description())
+    }
+
+    fn all() -> &'static [RuntimeMode] {
+        const MODES: [RuntimeMode; 5] = [
+            RuntimeMode::Tiny,
+            RuntimeMode::Local,
+            RuntimeMode::Performance,
+            RuntimeMode::Gateway,
+            RuntimeMode::Dev,
+        ];
+        &MODES
+    }
+}
+
+impl fmt::Display for RuntimeMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Tiny => "tiny",
+            Self::Local => "local",
+            Self::Performance => "performance",
+            Self::Gateway => "gateway",
+            Self::Dev => "dev",
+        };
+        write!(f, "{label}")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HardwareSnapshot {
+    os: String,
+    ram_gb: Option<u64>,
+    vram_gb: Option<u64>,
+    battery_sensitive: bool,
+    thermal_constrained: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ModelRecommendation {
+    model_class: &'static str,
+    quantization: &'static str,
+    performance_band: &'static str,
+    provider: &'static str,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProviderRow {
+    provider: &'static str,
+    available: bool,
+    best_for: &'static str,
+    cost: &'static str,
+    privacy: &'static str,
+    speed: &'static str,
+    setup: &'static str,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RoutingExplain {
+    selected_provider: String,
+    rejected_providers: Vec<String>,
+    reason_codes: Vec<String>,
+    privacy_decision: String,
+    cost_decision: String,
+    speed_decision: String,
+    fallback_decision: String,
+    degraded: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -121,16 +216,147 @@ async fn main() -> Result<()> {
     }
 }
 
-fn doctor() -> Result<()> {
-    let cpu = detect_cpu_features();
-    let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
-    runtime.step();
-    println!("Sawyer doctor report");
-    println!("- tick: {}", runtime.tick());
+fn mode(args: ModeArgs) -> Result<()> {
+    match args.command {
+        ModeCommands::List => {
+            for mode in RuntimeMode::all() {
+                println!("{mode:11} {}", mode.description());
+            }
+            Ok(())
+        }
+        ModeCommands::Explain { mode } => {
+            println!("{}", mode.explain());
+            Ok(())
+        }
+        ModeCommands::Set { mode } => {
+            save_mode(mode)?;
+            println!("mode set to {mode}");
+            Ok(())
+        }
+        ModeCommands::Current => {
+            println!("{}", load_mode()?);
+            Ok(())
+        }
+    }
+}
+
+fn doctor(args: DoctorArgs) -> Result<()> {
+    match args.command {
+        Some(DoctorCommands::Deps) => doctor_deps(),
+        None => {
+            let cpu = detect_cpu_features();
+            let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
+            runtime.step();
+            println!("Sawyer doctor report");
+            println!("- tick: {}", runtime.tick());
+            println!(
+                "- CPU avx2={} avx512f={} neon={}",
+                cpu.avx2, cpu.avx512f, cpu.neon
+            );
+            println!("- mode: {}", load_mode()?);
+            Ok(())
+        }
+    }
+}
+
+fn doctor_deps() -> Result<()> {
+    let deps = [
+        ("rust", true, "required"),
+        (
+            "llama.cpp",
+            port_open("127.0.0.1:8081"),
+            "optional provider",
+        ),
+        ("vLLM", port_open("127.0.0.1:8000"), "optional provider"),
+        ("LiteLLM", port_open("127.0.0.1:4000"), "optional provider"),
+        ("node/npm", false, "not required for single-binary runtime"),
+    ];
+    println!("Dependency | Status | Type");
+    println!("-----------|--------|-----");
+    for (dep, ok, kind) in deps {
+        let status = if ok { "present" } else { "missing/disabled" };
+        println!("{dep:10} | {status:14} | {kind}");
+    }
+    Ok(())
+}
+
+fn bench(args: BenchArgs) -> Result<()> {
+    match args.command.unwrap_or(BenchCommands::Quick) {
+        BenchCommands::Quick => bench_quick(),
+        BenchCommands::Compare => bench_compare(),
+    }
+}
+
+fn bench_quick() -> Result<()> {
+    let mut out = Vec::new();
+
+    let queue_start = Instant::now();
+    let mut events = Vec::with_capacity(10_000);
+    for i in 0..10_000 {
+        events.push(i);
+    }
+    let queue_elapsed = queue_start.elapsed();
+    out.push((
+        "event_queue_ops_per_sec",
+        10_000_f64 / queue_elapsed.as_secs_f64(),
+    ));
+
+    let reset_start = Instant::now();
+    events.clear();
+    let reset_elapsed = reset_start.elapsed();
+    out.push(("arena_reset_ns", reset_elapsed.as_nanos() as f64));
+
+    let lhs = vec![1.0_f32; 1024];
+    let rhs = vec![2.0_f32; 1024];
+    let dot_start = Instant::now();
+    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
+    let dot_elapsed = dot_start.elapsed();
+    out.push(("scalar_dot_ns", dot_elapsed.as_nanos() as f64));
+
+    out.push(("provider_health_llama_ms", latency_ms("127.0.0.1:8081")));
+    out.push(("provider_health_vllm_ms", latency_ms("127.0.0.1:8000")));
+    out.push(("provider_health_litellm_ms", latency_ms("127.0.0.1:4000")));
+
+    println!("bench quick (measured values only)");
+    println!("dot_product_value={dot}");
+    for (name, value) in out {
+        println!("{name}={value:.2}");
+    }
+    println!("recommendation=use measured provider latency + mode policy; no synthetic claims");
+    Ok(())
+}
+
+fn bench_compare() -> Result<()> {
+    println!("provider | health_latency_ms");
+    println!("llama.cpp | {:.2}", latency_ms("127.0.0.1:8081"));
+    println!("vllm | {:.2}", latency_ms("127.0.0.1:8000"));
+    println!("litellm | {:.2}", latency_ms("127.0.0.1:4000"));
+    Ok(())
+}
+
+fn quickstart() -> Result<()> {
+    let mode = load_mode()?;
+    let hw = detect_hardware();
+    let rec = recommend_model(&hw, "general");
+    let compare = comparison(mode);
+
+    println!("SawyerCore is a local-first AI runtime.");
+    println!("It routes tasks deterministically with policy and audit visibility.");
+    println!("Cloud is disabled by default; local providers are preferred.");
+    println!("If no model is available, Sawyer stays truthful with degraded status.");
+    println!("Current mode: {mode}");
     println!(
-        "- CPU avx2={} avx512f={} neon={}",
-        cpu.avx2, cpu.avx512f, cpu.neon
+        "Recommended model: {} {}",
+        rec.model_class, rec.quantization
     );
+    println!("Provider status:");
+    for row in compare {
+        println!(
+            "- {}: available={} ({})",
+            row.provider, row.available, row.reason
+        );
+    }
+    println!("Next command: sawyer up");
     Ok(())
 }
 
@@ -238,6 +464,47 @@ fn explain_adaptive() -> Result<()> {
     println!("- telemetry_basis={}", explain.telemetry_basis);
     println!("- confidence={:.2}", explain.confidence);
     Ok(())
+}
+
+fn load_mode() -> Result<RuntimeMode> {
+    let path = state_dir().join(MODE_FILE);
+    if !path.exists() {
+        return Ok(DEFAULT_MODE);
+    }
+    let mode = fs::read_to_string(path)?.trim().to_string();
+    parse_mode(&mode).with_context(|| format!("invalid saved mode value: {mode}"))
+}
+
+fn parse_mode(input: &str) -> Result<RuntimeMode> {
+    match input {
+        "tiny" => Ok(RuntimeMode::Tiny),
+        "local" => Ok(RuntimeMode::Local),
+        "performance" => Ok(RuntimeMode::Performance),
+        "gateway" => Ok(RuntimeMode::Gateway),
+        "dev" => Ok(RuntimeMode::Dev),
+        _ => anyhow::bail!("unsupported mode: {input}"),
+    }
+}
+
+fn port_open(addr: &str) -> bool {
+    match addr.parse::<SocketAddr>() {
+        Ok(socket) => TcpStream::connect_timeout(&socket, Duration::from_millis(80)).is_ok(),
+        Err(_) => false,
+    }
+}
+
+fn latency_ms(addr: &str) -> f64 {
+    match addr.parse::<SocketAddr>() {
+        Ok(socket) => {
+            let start = Instant::now();
+            if TcpStream::connect_timeout(&socket, Duration::from_millis(300)).is_ok() {
+                start.elapsed().as_secs_f64() * 1000.0
+            } else {
+                -1.0
+            }
+        }
+        Err(_) => -1.0,
+    }
 }
 
 fn sim_run() -> Result<()> {
