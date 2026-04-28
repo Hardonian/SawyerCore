@@ -1,17 +1,18 @@
 # Governance Policy
 
 ## IMPLEMENTED
-- Fail-closed policy engine (missing policy => deny).
-- Cloud egress constraints by classification and tenant permissions.
-- Cost/token caps, allow/deny model lists, fallback permissions.
-- Private/sensitive input denied for cloud-like routes.
-
-## STUBBED
-- External policy store integration.
+- Fail-closed behavior on missing/invalid policy context.
+- Private/sensitive classification denied for cloud-like routes.
+- Cost cap and token cap enforcement before provider execution.
+- Unsafe private-mode + cloud-fallback conflict detection at config load/doctor time.
 
 ## CONFIG-DEPENDENT
-- Per-tenant entitlements.
-- Data retention and egress allowlists.
+- Tenant permissions (`tenantPermissions`).
+- Cloud egress allowlist (`cloudEgressAllowedFor`).
+- Fallback policy and request-size ceilings.
+
+## STUBBED
+- External policy distribution/signing.
 
 ## FUTURE
-- Policy simulation mode and signed policy bundles.
+- Policy simulation API for dry-run audits before rollout.

@@ -1,18 +1,19 @@
 # Sawyer Runtime
 
 ## IMPLEMENTED
-- Deterministic routing engine with optimization scoring over latency/cost/privacy/hardware/failure history.
-- Provider abstraction layer (`healthCheck`, `estimateCost`, `estimateLatency`, `supportsTask`, `runInference`, `getCapabilities`).
-- Task contracts for chat/summarization/code/embedding/classification + placeholders.
-- Audit event emission on allow/deny paths.
-
-## STUBBED
-- Real hardware telemetry collection.
-- Real model invocation APIs.
+- Deterministic runtime path: request -> task contract -> policy engine -> provider health -> optimizer -> selected provider -> audit event -> response/degraded deny.
+- Provider abstraction with honest health state and bounded transport semantics.
+- Router-level fallback attempts across scored providers without route-level bypass.
+- Degraded deny responses on provider runtime failure instead of hard crashes.
 
 ## CONFIG-DEPENDENT
-- Provider enablement and endpoint URLs.
-- Fallback behavior and cost caps.
+- Provider endpoint availability.
+- Timeout/retry budgets and fallback eligibility.
+- Request-size/cost/token guardrails from governance config.
+
+## STUBBED
+- ONNX and Mobile NPU real execution backends.
+- External telemetry collectors.
 
 ## FUTURE
-- Online learning score tuning and SLO-aware adaptive routing.
+- Adaptive routing tuned by real production SLO feedback.

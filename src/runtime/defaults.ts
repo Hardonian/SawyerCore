@@ -19,7 +19,7 @@ export function safeDefaultConfig(): SawyerConfig {
     }),
     providers: {
       vllm: { name: 'vllm', endpoint: 'http://localhost:8000/v1', timeoutMs: 3500, retries: 1, enabled: true },
-      litellm: { name: 'litellm', endpoint: 'http://localhost:4000', timeoutMs: 3500, retries: 1, enabled: false },
+      litellm: { name: 'litellm', endpoint: 'http://localhost:4000/v1', timeoutMs: 3500, retries: 1, enabled: false },
       cloud: { name: 'cloud', timeoutMs: 8000, retries: 1, enabled: false },
       onnx: { name: 'onnx', timeoutMs: 1500, retries: 1, enabled: true },
       mobileNpu: { name: 'mobileNpu', timeoutMs: 1200, retries: 1, enabled: false }
@@ -31,6 +31,7 @@ export function safeDefaultConfig(): SawyerConfig {
       allowModelList: [],
       maxCostPerRequestUsd: 0.02,
       maxTokens: 8192,
+      maxRequestBytes: 1024 * 1024,
       fallbackAllowed: false,
       dataRetention: 'none',
       tenantPermissions: {

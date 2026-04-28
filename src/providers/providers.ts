@@ -1,7 +1,8 @@
 import type { AiTask, InferenceResult, Capability } from '../types/contracts.js';
-import type { RuntimeProvider, ProviderCapabilities, ProviderTarget } from './provider.js';
+import type { ProviderConfig } from '../types/config.js';
+import type { RuntimeProvider, ProviderCapabilities, ProviderTarget, ProviderHealth } from './provider.js';
 
-type ProviderOpts = {
+interface ProviderOpts {
   name: string;
   target: ProviderTarget;
   healthy?: boolean;
@@ -10,7 +11,7 @@ type ProviderOpts = {
   supportsPrivateData?: boolean;
   baseCostPer1kTokens: number;
   baseLatencyMs: number;
-};
+}
 
 class StubProvider implements RuntimeProvider {
   public readonly name: string;
@@ -39,12 +40,12 @@ class StubProvider implements RuntimeProvider {
     this.healthy = healthy;
   }
 
-  async healthCheck(): Promise<{ healthy: boolean; reason?: string }> {
+  async healthCheck(): Promise<ProviderHealth> {
     return this.healthy ? { healthy: true } : { healthy: false, reason: `${this.name} unavailable` };
   }
 
   estimateCost(task: AiTask): number {
-    return Number((((task.maxContextTokens / 1000) * this.baseCostPer1kTokens)).toFixed(6));
+    return Number(((task.maxContextTokens / 1000) * this.baseCostPer1kTokens).toFixed(6));
   }
 
   estimateLatency(task: AiTask): number {
@@ -81,30 +82,120 @@ class StubProvider implements RuntimeProvider {
   }
 }
 
-export class VllmProvider extends StubProvider {
-  constructor() {
-    super({
-      name: 'vllm',
-      target: 'VLLM_SERVER',
-      capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification', 'planning'],
-      maxContextTokens: 32768,
-      baseCostPer1kTokens: 0.0002,
-      baseLatencyMs: 170
+type FetchLike = typeof fetch;
+
+abstract class OpenAiCompatibleProvider extends StubProvider {
+  constructor(
+    opts: ProviderOpts,
+    private readonly providerConfig: ProviderConfig,
+    private readonly fetcher: FetchLike = fetch
+  ) {
+    super(opts);
+  }
+
+  protected endpoint(path: string): string {
+    return `${this.providerConfig.endpoint ?? ''}${path}`;
+  }
+
+  private async request<T>(path: string, init: RequestInit): Promise<T> {
+    let lastError: string | undefined;
+
+    for (let attempt = 0; attempt <= this.providerConfig.retries; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.providerConfig.timeoutMs);
+      try {
+        const response = await this.fetcher(this.endpoint(path), { ...init, signal: controller.signal });
+        if (!response.ok) {
+          lastError = `${response.status} ${response.statusText}`;
+          continue;
+        }
+        return (await response.json()) as T;
+      } catch (error) {
+        lastError = (error as Error).message;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    throw new Error(`provider unavailable: ${this.name} (${lastError ?? 'unknown transport error'})`);
+  }
+
+  async healthCheck(): Promise<ProviderHealth> {
+    if (!this.providerConfig.enabled) {
+      return { healthy: false, reason: 'provider disabled' };
+    }
+    if (!this.providerConfig.endpoint) {
+      return { healthy: false, reason: 'missing endpoint' };
+    }
+    try {
+      const payload = await this.request<{ data?: Array<{ id: string }> }>('/models', { method: 'GET' });
+      return {
+        healthy: true,
+        models: payload.data?.map((item) => item.id) ?? [],
+        timeoutMs: this.providerConfig.timeoutMs
+      };
+    } catch (error) {
+      return { healthy: false, reason: (error as Error).message, timeoutMs: this.providerConfig.timeoutMs };
+    }
+  }
+
+  async runInference(task: AiTask): Promise<InferenceResult> {
+    const payload = await this.request<{
+      model?: string;
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { total_tokens?: number };
+    }>('/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: `${this.name}-default-model`,
+        messages: [{ role: 'user', content: task.input }],
+        max_tokens: Math.min(task.maxContextTokens, this.getCapabilities().maxContextTokens)
+      })
     });
+
+    return {
+      output: payload.choices?.[0]?.message?.content ?? `[${this.name}] empty completion`,
+      provider: this.name,
+      model: payload.model ?? `${this.name}-default-model`,
+      latencyMs: this.estimateLatency(task),
+      costUsd: this.estimateCost(task)
+    };
   }
 }
 
-export class LiteLLMProvider extends StubProvider {
-  constructor() {
-    super({
-      name: 'litellm',
-      target: 'LITELLM_PROXY',
-      capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification', 'vision', 'retrieval', 'planning'],
-      supportsPrivateData: false,
-      maxContextTokens: 128000,
-      baseCostPer1kTokens: 0.001,
-      baseLatencyMs: 260
-    });
+export class VllmProvider extends OpenAiCompatibleProvider {
+  constructor(config: ProviderConfig = { name: 'vllm', endpoint: 'http://localhost:8000/v1', timeoutMs: 3500, retries: 1, enabled: true }, fetcher?: FetchLike) {
+    super(
+      {
+        name: 'vllm',
+        target: 'VLLM_SERVER',
+        capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification', 'planning'],
+        maxContextTokens: 32768,
+        baseCostPer1kTokens: 0.0002,
+        baseLatencyMs: 170
+      },
+      config,
+      fetcher
+    );
+  }
+}
+
+export class LiteLLMProvider extends OpenAiCompatibleProvider {
+  constructor(config: ProviderConfig = { name: 'litellm', endpoint: 'http://localhost:4000/v1', timeoutMs: 3500, retries: 1, enabled: false }, fetcher?: FetchLike) {
+    super(
+      {
+        name: 'litellm',
+        target: 'LITELLM_PROXY',
+        capabilities: ['chat', 'summarization', 'code', 'embedding', 'classification', 'vision', 'retrieval', 'planning'],
+        supportsPrivateData: false,
+        maxContextTokens: 128000,
+        baseCostPer1kTokens: 0.001,
+        baseLatencyMs: 260
+      },
+      config,
+      fetcher
+    );
   }
 }
 
@@ -158,5 +249,15 @@ export class MockProvider extends StubProvider {
       baseCostPer1kTokens: 0,
       baseLatencyMs: 10
     });
+  }
+
+  async runInference(task: AiTask): Promise<InferenceResult> {
+    return {
+      output: `[deterministic-${this.name}] ${task.id}`,
+      provider: this.name,
+      model: `${this.name}-default-model`,
+      latencyMs: 10,
+      costUsd: 0
+    };
   }
 }

@@ -16,36 +16,48 @@ export const ToggleSchema = z.object({
 
 export type RuntimeToggles = z.infer<typeof ToggleSchema>;
 
-export interface ProviderConfig {
-  name: string;
-  endpoint?: string;
-  timeoutMs: number;
-  retries: number;
-  enabled: boolean;
-}
+export const ProviderConfigSchema = z.object({
+  name: z.string().min(1),
+  endpoint: z.string().url().optional(),
+  timeoutMs: z.number().int().positive(),
+  retries: z.number().int().min(0).max(5),
+  enabled: z.boolean()
+});
 
-export interface GovernancePolicy {
-  requireAudit: boolean;
-  cloudEgressAllowedFor: ('public' | 'internal')[];
-  denyModelList: string[];
-  allowModelList: string[];
-  maxCostPerRequestUsd: number;
-  maxTokens: number;
-  fallbackAllowed: boolean;
-  dataRetention: 'none' | 'transient' | 'standard';
-  tenantPermissions: Record<string, { cloudAllowed: boolean; privateDataCloudAllowed: boolean }>;
-}
+export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
-export interface SawyerConfig {
-  version: string;
-  profile: string;
-  toggles: RuntimeToggles;
-  providers: {
-    vllm: ProviderConfig;
-    litellm: ProviderConfig;
-    cloud: ProviderConfig;
-    onnx: ProviderConfig;
-    mobileNpu: ProviderConfig;
-  };
-  policy: GovernancePolicy;
-}
+export const GovernancePolicySchema = z.object({
+  requireAudit: z.boolean(),
+  cloudEgressAllowedFor: z.array(z.enum(['public', 'internal'])),
+  denyModelList: z.array(z.string()),
+  allowModelList: z.array(z.string()),
+  maxCostPerRequestUsd: z.number().nonnegative(),
+  maxTokens: z.number().int().positive(),
+  maxRequestBytes: z.number().int().positive().default(1024 * 1024),
+  fallbackAllowed: z.boolean(),
+  dataRetention: z.enum(['none', 'transient', 'standard']),
+  tenantPermissions: z.record(
+    z.object({
+      cloudAllowed: z.boolean(),
+      privateDataCloudAllowed: z.boolean()
+    })
+  )
+});
+
+export type GovernancePolicy = z.infer<typeof GovernancePolicySchema>;
+
+export const SawyerConfigSchema = z.object({
+  version: z.string().min(1),
+  profile: z.string().min(1),
+  toggles: ToggleSchema,
+  providers: z.object({
+    vllm: ProviderConfigSchema,
+    litellm: ProviderConfigSchema,
+    cloud: ProviderConfigSchema,
+    onnx: ProviderConfigSchema,
+    mobileNpu: ProviderConfigSchema
+  }),
+  policy: GovernancePolicySchema
+});
+
+export type SawyerConfig = z.infer<typeof SawyerConfigSchema>;
