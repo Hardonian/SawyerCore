@@ -35,6 +35,7 @@ pub fn router(state: ServerState) -> Router {
         .route("/metrics", get(metrics))
         .route("/v1/chat/completions", post(chat))
         .route("/sim/run", post(sim_run))
+        .route("/explain/last", get(explain_last))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)
 }
@@ -115,6 +116,28 @@ pub struct SimRunResponse {
     pub replayable: bool,
     pub latency_ms: u128,
     pub events_per_sec: f64,
+}
+
+#[derive(Serialize)]
+struct ExplainUnavailable {
+    error: &'static str,
+    degraded: bool,
+}
+
+async fn explain_last() -> impl IntoResponse {
+    let path = std::env::var("SAWYER_STATE_DIR").unwrap_or_else(|_| ".sawyer".to_string());
+    let explain_path = std::path::Path::new(&path).join("last-explain.json");
+    match std::fs::read_to_string(explain_path) {
+        Ok(body) => (StatusCode::OK, body).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(ExplainUnavailable {
+                error: "no routing explanation captured yet",
+                degraded: true,
+            }),
+        )
+            .into_response(),
+    }
 }
 
 async fn sim_run(Json(request): Json<SimRunRequest>) -> Json<SimRunResponse> {

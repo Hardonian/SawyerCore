@@ -1,19 +1,40 @@
 # SawyerCore
 
-Production-oriented deterministic edge AI runtime + governance engine.
+SawyerCore is a local-first AI runtime that decides where an AI task should run safely.
 
-## Quickstart
+## One-command start
 
 ```bash
-npm install
-npm run sawyer:init -- --auto
-npm run sawyer:doctor
-npm run verify:ai
-npm run verify:policy
-npm run verify:runtime
+cargo run -p sawyer-cli -- quickstart
 ```
 
-## Key Guarantees
-- Fail-closed policy enforcement.
-- Auditable routing decisions.
-- Local-safe profile with cloud fallback disabled by default.
+Then launch:
+
+```bash
+cargo run -p sawyer-cli -- up
+```
+
+## What you get
+
+- Deterministic routing with explicit degraded states.
+- Cloud disabled by default (local-safe posture).
+- Runtime modes (`tiny`, `local`, `performance`, `gateway`, `dev`).
+- Provider comparison with real localhost availability checks.
+- Explainability output for the latest routing decision (`sawyer explain last` / `GET /explain/last`).
+
+## Mode commands
+
+```bash
+cargo run -p sawyer-cli -- mode list
+cargo run -p sawyer-cli -- mode explain tiny
+cargo run -p sawyer-cli -- mode set tiny
+cargo run -p sawyer-cli -- mode current
+```
+
+## Beginner docs
+
+- [Quickstart](docs/quickstart.md)
+- [Concepts](docs/concepts.md)
+- [Modes](docs/modes.md)
+- [Model sizing](docs/model-sizing.md)
+- [Single-binary deploy](docs/deploy/single-binary.md)
