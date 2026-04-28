@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use sawyer_core::{DeterministicRuntime, RuntimeConfig};
-use sawyer_kernels::{detect_cpu_features, dot_product};
-use sawyer_server::{serve, ServerState};
+use sawyer_kernels::{detect_cpu_features, dot_product, summarize_cpu_execution_path};
+use sawyer_server::{serve, SecurityConfig, ServerState};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
 
 #[derive(Parser)]
@@ -36,6 +36,26 @@ enum SimCommands {
 struct ServeArgs {
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind: String,
+    #[arg(long, default_value_t = false)]
+    allow_lan: bool,
+    #[arg(long, env = "SAWYER_NODE_TOKEN")]
+    node_token: Option<String>,
+    #[arg(long, default_value_t = 1024 * 1024)]
+    max_request_bytes: usize,
+    #[arg(long, default_value_t = 8192)]
+    max_context_tokens: usize,
+    #[arg(long, default_value_t = false)]
+    allow_cloud: bool,
+    #[arg(long, default_value_t = true)]
+    private_mode: bool,
+    #[arg(long, default_value_t = true)]
+    redact_logs: bool,
+    #[arg(long, default_value = "./logs/sawyer-audit.log")]
+    audit_log_path: String,
+    #[arg(long, default_value_t = 120)]
+    rate_limit_per_minute: u32,
+    #[arg(long, default_value_t = false)]
+    unsafe_dev: bool,
 }
 
 #[derive(Args)]
@@ -61,8 +81,34 @@ async fn main() -> Result<()> {
             SimCommands::Run => sim_run(),
         },
         Commands::Serve(args) => {
+            if args.unsafe_dev {
+                eprintln!("\n⚠️⚠️⚠️  UNSAFE DEV MODE ENABLED -- PRODUCTION SAFETY GUARDS ARE RELAXED ⚠️⚠️⚠️\n");
+            }
+            let security = SecurityConfig {
+                bind_host: args
+                    .bind
+                    .split(':')
+                    .next()
+                    .unwrap_or("127.0.0.1")
+                    .to_string(),
+                allow_lan: args.allow_lan,
+                require_node_token: true,
+                max_request_bytes: args.max_request_bytes,
+                max_context_tokens: args.max_context_tokens,
+                allow_cloud: args.allow_cloud,
+                private_mode: args.private_mode,
+                redact_logs: args.redact_logs,
+                audit_log_path: args.audit_log_path,
+                rate_limit_per_minute: args.rate_limit_per_minute,
+            };
+            let state = ServerState::with_security(
+                security,
+                args.node_token,
+                std::env::var("SAWYER_CLOUD_API_KEY").is_ok(),
+            );
+
             println!("starting server on {}", args.bind);
-            serve(&args.bind, ServerState::default()).await
+            serve(&args.bind, state, args.unsafe_dev).await
         }
         Commands::Models(models) => match models.command {
             ModelsCommands::List => models_list(),
@@ -80,13 +126,14 @@ fn doctor() -> Result<()> {
         "- CPU avx2={} avx512f={} neon={}",
         cpu.avx2, cpu.avx512f, cpu.neon
     );
+    println!("- execution path: {}", summarize_cpu_execution_path(cpu));
     Ok(())
 }
 
 fn bench() -> Result<()> {
     let lhs = vec![1.0_f32; 256];
     let rhs = vec![2.0_f32; 256];
-    let dot = dot_product(&lhs, &rhs)?;
+    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
     println!("bench smoke: dot_product={dot}");
     println!("for full benches run: cargo bench -p sawyer-core");
     Ok(())
