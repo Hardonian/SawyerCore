@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "profile": "local-safe",
+  "cloudFallback": false,
+  "privacy": "local-only",
+  "providerPreference": ["onnx", "vllm"],
+  "audit": "strict"
+}

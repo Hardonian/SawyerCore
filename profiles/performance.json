@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "profile": "performance",
+  "providerPreference": ["vllm", "local-gpu", "litellm", "cloud"],
+  "aggressivePreloading": true,
+  "allowLargerModels": true
+}

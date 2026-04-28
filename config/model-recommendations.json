@@ -1,0 +1,26 @@
+{
+  "chat": {
+    "tiny_local": "tinyllama-1.1b",
+    "balanced_local": "mistral-7b-instruct-q4",
+    "high_quality_remote": "gpt-4.1-mini"
+  },
+  "summarization": {
+    "local_small": "flan-t5-small",
+    "vllm_model": "llama-3.1-8b-instruct",
+    "cloud_fallback": "gpt-4o-mini"
+  },
+  "classification": {
+    "mobile_npu_compact": "mobilebert-uncased",
+    "cpu_fallback": "distilbert-base-uncased"
+  },
+  "embeddings": {
+    "local_embedding": "bge-small-en-v1.5",
+    "mobile_embedding": "e5-small-v2",
+    "server_embedding": "bge-large-en-v1.5"
+  },
+  "code": {
+    "local_coder": "deepseek-coder-6.7b-instruct",
+    "vllm_preferred": "codestral-22b",
+    "cloud_fallback": "gpt-4.1-mini"
+  }
+}

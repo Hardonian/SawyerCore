@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "profile": "developer",
+  "verboseTracing": true,
+  "mockProviders": true,
+  "preferLocalEndpoints": true,
+  "testFixtures": true
+}
