@@ -185,6 +185,7 @@ pub fn router(state: ServerState) -> Router {
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/metrics", get(metrics))
+        .route("/explain/last", get(explain_last))
         .route("/v1/chat/completions", post(chat))
         .route("/sim/run", post(sim_run))
         .layer(DefaultBodyLimit::max(max))

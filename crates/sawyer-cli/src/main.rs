@@ -1,12 +1,24 @@
-use std::path::PathBuf;
+use std::{
+    env, fmt, fs,
+    io::{Read, Write},
+    net::{SocketAddr, TcpStream},
+    path::{Path, PathBuf},
+    process::Command,
+    time::{Duration, Instant},
+};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use sawyer_core::{DeterministicRuntime, RuntimeConfig};
+use sawyer_history::{AdaptiveConfig, HistoryIndex};
 use sawyer_kernels::{detect_cpu_features, dot_product, summarize_cpu_execution_path};
 use sawyer_server::{serve, SecurityConfig, ServerState};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
 use sawyer_telemetry::{RequestTelemetry, TelemetryConfig, TelemetryEngine};
+use serde::{Deserialize, Serialize};
+
+const MODE_FILE: &str = "mode";
+const DEFAULT_MODE: RuntimeMode = RuntimeMode::Local;
 
 #[derive(Parser)]
 #[command(
@@ -20,7 +32,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Doctor,
+    Doctor(DoctorArgs),
     Bench(BenchArgs),
     Calibrate,
     Stats(StatsArgs),
@@ -28,6 +40,27 @@ enum Commands {
     Sim(SimArgs),
     Serve(ServeArgs),
     Models(ModelsArgs),
+    Mode(ModeArgs),
+    Quickstart,
+    #[command(name = "first-run")]
+    FirstRun,
+    Security(SecurityArgs),
+    #[command(name = "verify-binary")]
+    VerifyBinary(VerifyBinaryArgs),
+    Audit(AuditArgs),
+    Smoke(SmokeArgs),
+    Adaptive(AdaptiveArgs),
+}
+
+#[derive(Args)]
+struct DoctorArgs {
+    #[command(subcommand)]
+    command: Option<DoctorCommands>,
+}
+
+#[derive(Subcommand)]
+enum DoctorCommands {
+    Deps,
 }
 
 #[derive(Args)]
@@ -111,7 +144,75 @@ struct ModelsArgs {
 
 #[derive(Subcommand)]
 enum ModelsCommands {
+    ListLocal,
+    Verify { path: PathBuf, sha256: String },
+    Recommend,
+}
+
+#[derive(Args)]
+struct ModeArgs {
+    #[command(subcommand)]
+    command: ModeCommands,
+}
+
+#[derive(Subcommand)]
+enum ModeCommands {
     List,
+    Explain { mode: RuntimeMode },
+    Set { mode: RuntimeMode },
+    Current,
+}
+
+#[derive(Args)]
+struct SecurityArgs {
+    #[command(subcommand)]
+    command: SecurityCommands,
+}
+
+#[derive(Subcommand)]
+enum SecurityCommands {
+    Audit,
+}
+
+#[derive(Args)]
+struct VerifyBinaryArgs {
+    path: PathBuf,
+    sha256: String,
+}
+
+#[derive(Args)]
+struct AuditArgs {
+    #[command(subcommand)]
+    command: AuditCommands,
+}
+
+#[derive(Subcommand)]
+enum AuditCommands {
+    Verify { path: PathBuf },
+}
+
+#[derive(Args)]
+struct SmokeArgs {
+    #[command(subcommand)]
+    command: SmokeCommands,
+}
+
+#[derive(Subcommand)]
+enum SmokeCommands {
+    Local,
+}
+
+#[derive(Args)]
+struct AdaptiveArgs {
+    #[command(subcommand)]
+    command: AdaptiveCommands,
+}
+
+#[derive(Subcommand)]
+enum AdaptiveCommands {
+    Status,
+    Explain,
+    Reset,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, clap::ValueEnum, PartialEq, Eq)]
@@ -120,32 +221,45 @@ enum RuntimeMode {
     Tiny,
     Local,
     Performance,
-    Gateway,
-    Dev,
+    #[value(name = "cost-saver")]
+    CostSaver,
+    Private,
+    Cluster,
+    Developer,
 }
 
 impl RuntimeMode {
     fn description(self) -> &'static str {
         match self {
-            Self::Tiny => "CPU-only minimal footprint; local HTTP/llama.cpp when available; no vLLM/LiteLLM",
-            Self::Local => "Safe default: local-first with optional vLLM/LiteLLM checks; cloud disabled",
-            Self::Performance => "GPU/server oriented: vLLM preferred, higher memory budget, preloading enabled",
-            Self::Gateway => "LiteLLM proxy eligible, but local routes first and cloud disabled unless explicitly enabled",
-            Self::Dev => "Verbose diagnostics for local development; no production runtime mocks",
+            Self::Tiny => {
+                "CPU-only minimal footprint; local-only providers; smallest context budget"
+            }
+            Self::Local => {
+                "Safe default: local-first routing; cloud disabled; strict degraded truth"
+            }
+            Self::Performance => "vLLM-first local performance profile with larger local budgets",
+            Self::CostSaver => {
+                "Local-first low-cost profile; cloud denied unless explicitly reconfigured"
+            }
+            Self::Private => "Hard private mode: cloud blocked, strict local execution only",
+            Self::Cluster => {
+                "Trusted-node cluster mode; localhost defaults, token-gated LAN control"
+            }
+            Self::Developer => {
+                "Developer diagnostics with explicit unsafe knobs hidden behind flags"
+            }
         }
     }
 
-    fn explain(self) -> String {
-        format!("{} => {}", self, self.description())
-    }
-
     fn all() -> &'static [RuntimeMode] {
-        const MODES: [RuntimeMode; 5] = [
+        const MODES: [RuntimeMode; 7] = [
             RuntimeMode::Tiny,
             RuntimeMode::Local,
             RuntimeMode::Performance,
-            RuntimeMode::Gateway,
-            RuntimeMode::Dev,
+            RuntimeMode::CostSaver,
+            RuntimeMode::Private,
+            RuntimeMode::Cluster,
+            RuntimeMode::Developer,
         ];
         &MODES
     }
@@ -157,53 +271,21 @@ impl fmt::Display for RuntimeMode {
             Self::Tiny => "tiny",
             Self::Local => "local",
             Self::Performance => "performance",
-            Self::Gateway => "gateway",
-            Self::Dev => "dev",
+            Self::CostSaver => "cost-saver",
+            Self::Private => "private",
+            Self::Cluster => "cluster",
+            Self::Developer => "developer",
         };
         write!(f, "{label}")
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct HardwareSnapshot {
-    os: String,
-    ram_gb: Option<u64>,
-    vram_gb: Option<u64>,
-    battery_sensitive: bool,
-    thermal_constrained: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModelRecommendation {
-    model_class: &'static str,
-    quantization: &'static str,
-    performance_band: &'static str,
-    provider: &'static str,
-    reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ProviderRow {
-    provider: &'static str,
+#[derive(Debug, Clone)]
+struct ProviderHealth {
+    name: &'static str,
+    endpoint: &'static str,
     available: bool,
-    best_for: &'static str,
-    cost: &'static str,
-    privacy: &'static str,
-    speed: &'static str,
-    setup: &'static str,
     reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RoutingExplain {
-    selected_provider: String,
-    rejected_providers: Vec<String>,
-    reason_codes: Vec<String>,
-    privacy_decision: String,
-    cost_decision: String,
-    speed_decision: String,
-    fallback_decision: String,
-    degraded: bool,
 }
 
 #[tokio::main]
@@ -212,7 +294,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Doctor => doctor(),
+        Commands::Doctor(args) => doctor(args),
         Commands::Bench(args) => match args.command {
             BenchCommands::Quick => bench_quick(),
             BenchCommands::Compare => bench_compare(),
@@ -222,72 +304,66 @@ async fn main() -> Result<()> {
         Commands::Explain(args) => match args.command {
             ExplainCommands::Adaptive => explain_adaptive(),
         },
-        Commands::Sim(sim) => match sim.command {
+        Commands::Sim(args) => match args.command {
             SimCommands::Run => sim_run(),
         },
-        Commands::Serve(args) => {
-            if args.unsafe_dev {
-                eprintln!("\n⚠️⚠️⚠️  UNSAFE DEV MODE ENABLED -- PRODUCTION SAFETY GUARDS ARE RELAXED ⚠️⚠️⚠️\n");
-            }
-            let security = SecurityConfig {
-                bind_host: args
-                    .bind
-                    .split(':')
-                    .next()
-                    .unwrap_or("127.0.0.1")
-                    .to_string(),
-                allow_lan: args.allow_lan,
-                require_node_token: true,
-                max_request_bytes: args.max_request_bytes,
-                max_context_tokens: args.max_context_tokens,
-                allow_cloud: args.allow_cloud,
-                private_mode: args.private_mode,
-                redact_logs: args.redact_logs,
-                audit_log_path: args.audit_log_path,
-                rate_limit_per_minute: args.rate_limit_per_minute,
-            };
-            let state = ServerState::with_security(
-                security,
-                args.node_token,
-                std::env::var("SAWYER_CLOUD_API_KEY").is_ok(),
-            );
-
-            println!("starting server on {}", args.bind);
-            serve(&args.bind, state, args.unsafe_dev).await
-        }
-        Commands::Models(models) => match models.command {
-            ModelsCommands::List => models_list(),
-        },
+        Commands::Serve(args) => serve_cmd(args).await,
+        Commands::Models(args) => models(args),
+        Commands::Mode(args) => mode(args),
+        Commands::Quickstart => quickstart(),
+        Commands::FirstRun => first_run(),
+        Commands::Security(args) => security(args),
+        Commands::VerifyBinary(args) => verify_binary(args.path, &args.sha256),
+        Commands::Audit(args) => audit(args),
+        Commands::Smoke(args) => smoke(args),
+        Commands::Adaptive(args) => adaptive(args),
     }
 }
 
-fn mode(args: ModeArgs) -> Result<()> {
-    match args.command {
-        ModeCommands::List => {
-            for mode in RuntimeMode::all() {
-                println!("{mode:11} {}", mode.description());
-            }
-            Ok(())
-        }
-        ModeCommands::Explain { mode } => {
-            println!("{}", mode.explain());
-            Ok(())
-        }
-        ModeCommands::Set { mode } => {
-            save_mode(mode)?;
-            println!("mode set to {mode}");
-            Ok(())
-        }
-        ModeCommands::Current => {
-            println!("{}", load_mode()?);
-            Ok(())
-        }
+async fn serve_cmd(args: ServeArgs) -> Result<()> {
+    if args.unsafe_dev {
+        eprintln!("\n⚠️ UNSAFE DEV MODE ENABLED -- PRODUCTION SAFETY GUARDS RELAXED\n");
     }
+    let security = SecurityConfig {
+        bind_host: args
+            .bind
+            .split(':')
+            .next()
+            .unwrap_or("127.0.0.1")
+            .to_string(),
+        allow_lan: args.allow_lan,
+        require_node_token: true,
+        max_request_bytes: args.max_request_bytes,
+        max_context_tokens: args.max_context_tokens,
+        allow_cloud: args.allow_cloud,
+        private_mode: args.private_mode,
+        redact_logs: args.redact_logs,
+        audit_log_path: args.audit_log_path,
+        rate_limit_per_minute: args.rate_limit_per_minute,
+    };
+    let state = ServerState::with_security(
+        security,
+        args.node_token,
+        env::var("SAWYER_CLOUD_API_KEY").is_ok(),
+    );
+
+    println!("starting server on {}", args.bind);
+    serve(&args.bind, state, args.unsafe_dev).await
 }
 
 fn doctor(args: DoctorArgs) -> Result<()> {
     match args.command {
-        Some(DoctorCommands::Deps) => doctor_deps(),
+        Some(DoctorCommands::Deps) => {
+            for p in provider_health() {
+                let status = if p.available {
+                    "available"
+                } else {
+                    "unavailable"
+                };
+                println!("{} {} ({}) - {}", p.name, status, p.endpoint, p.reason);
+            }
+            Ok(())
+        }
         None => {
             let cpu = detect_cpu_features();
             let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
@@ -304,107 +380,224 @@ fn doctor(args: DoctorArgs) -> Result<()> {
     }
 }
 
-fn doctor_deps() -> Result<()> {
-    let deps = [
-        ("rust", true, "required"),
-        (
-            "llama.cpp",
-            port_open("127.0.0.1:8081"),
-            "optional provider",
-        ),
-        ("vLLM", port_open("127.0.0.1:8000"), "optional provider"),
-        ("LiteLLM", port_open("127.0.0.1:4000"), "optional provider"),
-        ("node/npm", false, "not required for single-binary runtime"),
-    ];
-    println!("Dependency | Status | Type");
-    println!("-----------|--------|-----");
-    for (dep, ok, kind) in deps {
-        let status = if ok { "present" } else { "missing/disabled" };
-        println!("{dep:10} | {status:14} | {kind}");
-    }
-    Ok(())
-}
-
-fn bench(args: BenchArgs) -> Result<()> {
-    match args.command.unwrap_or(BenchCommands::Quick) {
-        BenchCommands::Quick => bench_quick(),
-        BenchCommands::Compare => bench_compare(),
-    }
-}
-
 fn bench_quick() -> Result<()> {
-    let mut out = Vec::new();
-
-    let queue_start = Instant::now();
-    let mut events = Vec::with_capacity(10_000);
-    for i in 0..10_000 {
-        events.push(i);
-    }
-    let queue_elapsed = queue_start.elapsed();
-    out.push((
-        "event_queue_ops_per_sec",
-        10_000_f64 / queue_elapsed.as_secs_f64(),
-    ));
-
-    let reset_start = Instant::now();
-    events.clear();
-    let reset_elapsed = reset_start.elapsed();
-    out.push(("arena_reset_ns", reset_elapsed.as_nanos() as f64));
-
     let lhs = vec![1.0_f32; 1024];
     let rhs = vec![2.0_f32; 1024];
     let dot_start = Instant::now();
     let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
     let dot_elapsed = dot_start.elapsed();
-    out.push(("scalar_dot_ns", dot_elapsed.as_nanos() as f64));
 
-    out.push(("provider_health_llama_ms", latency_ms("127.0.0.1:8081")));
-    out.push(("provider_health_vllm_ms", latency_ms("127.0.0.1:8000")));
-    out.push(("provider_health_litellm_ms", latency_ms("127.0.0.1:4000")));
-
-    println!("bench quick (measured values only)");
+    println!("bench quick (measured only)");
     println!("dot_product_value={dot}");
-    for (name, value) in out {
-        println!("{name}={value:.2}");
+    println!("dot_ns={}", dot_elapsed.as_nanos());
+    for p in provider_health() {
+        let ms = latency_ms(p.endpoint);
+        println!("provider_health_{}_ms={ms:.2}", p.name.replace('.', ""));
     }
-    println!("recommendation=use measured provider latency + mode policy; no synthetic claims");
+    println!("recommendation=use measured provider latency + policy constraints");
     Ok(())
 }
 
 fn bench_compare() -> Result<()> {
     println!("provider | health_latency_ms");
-    println!("llama.cpp | {:.2}", latency_ms("127.0.0.1:8081"));
-    println!("vllm | {:.2}", latency_ms("127.0.0.1:8000"));
-    println!("litellm | {:.2}", latency_ms("127.0.0.1:4000"));
+    for p in provider_health() {
+        println!("{} | {:.2}", p.name, latency_ms(p.endpoint));
+    }
     Ok(())
 }
 
 fn quickstart() -> Result<()> {
     let mode = load_mode()?;
-    let hw = detect_hardware();
-    let rec = recommend_model(&hw, "general");
-    let compare = comparison(mode);
-
-    println!("SawyerCore is a local-first AI runtime.");
-    println!("It routes tasks deterministically with policy and audit visibility.");
-    println!("Cloud is disabled by default; local providers are preferred.");
-    println!("If no model is available, Sawyer stays truthful with degraded status.");
-    println!("Current mode: {mode}");
-    println!(
-        "Recommended model: {} {}",
-        rec.model_class, rec.quantization
-    );
-    println!("- execution path: {}", summarize_cpu_execution_path(cpu));
+    println!("Sawyer quickstart");
+    println!("- mode: {mode}");
+    println!("- cloud disabled by default; private tasks are local-only");
+    println!("- provider check: run `sawyer doctor deps`");
+    println!("- model check: run `sawyer models list-local`");
+    println!("- start server: `sawyer serve --bind 127.0.0.1:8080`");
     Ok(())
 }
 
-fn bench_quick() -> Result<()> {
-    let lhs = vec![1.0_f32; 256];
-    let rhs = vec![2.0_f32; 256];
-    let dot = dot_product(&lhs, &rhs).map_err(anyhow::Error::msg)?;
-    println!("bench smoke: dot_product={dot}");
-    println!("for full benches run: cargo bench -p sawyer-core");
+fn first_run() -> Result<()> {
+    let cpu = detect_cpu_features();
+    let mode = recommend_mode();
+    let model = if mode == RuntimeMode::Tiny {
+        "tiny pack (1.5B Q4_K_M gguf)"
+    } else {
+        "balanced pack (3B Q4_K_M gguf)"
+    };
+
+    println!("Sawyer first-run");
+    println!("device detected: {}", summarize_cpu_execution_path(cpu));
+    println!("recommended mode: {mode}");
+    println!("recommended model: {model}");
+    for p in provider_health() {
+        println!(
+            "provider {} available={} reason={}",
+            p.name, p.available, p.reason
+        );
+    }
+    println!("next command: sawyer mode set {mode}");
     Ok(())
+}
+
+fn mode(args: ModeArgs) -> Result<()> {
+    match args.command {
+        ModeCommands::List => {
+            for mode in RuntimeMode::all() {
+                println!("{mode:11} {}", mode.description());
+            }
+            Ok(())
+        }
+        ModeCommands::Explain { mode } => {
+            println!("{} => {}", mode, mode.description());
+            Ok(())
+        }
+        ModeCommands::Set { mode } => {
+            save_mode(mode)?;
+            println!("mode set to {mode}");
+            Ok(())
+        }
+        ModeCommands::Current => {
+            println!("{}", load_mode()?);
+            Ok(())
+        }
+    }
+}
+
+fn models(args: ModelsArgs) -> Result<()> {
+    match args.command {
+        ModelsCommands::ListLocal => models_list_local(),
+        ModelsCommands::Verify { path, sha256 } => verify_binary(path, &sha256),
+        ModelsCommands::Recommend => {
+            println!("tiny pack: 1.5B gguf q4_k_m (cpu-safe)");
+            println!("balanced pack: 3B gguf q4_k_m (default local)");
+            println!("quality pack: 7B gguf q4_k_m (higher RAM)");
+            println!("workstation pack: 14B gguf q4_k_m (workstation-class only)");
+            Ok(())
+        }
+    }
+}
+
+fn models_list_local() -> Result<()> {
+    let state = ServerState::default();
+    for model in &state.registry.models {
+        println!(
+            "{} backend={} available={} status={}",
+            model.id, model.backend, model.available, model.status
+        );
+    }
+    Ok(())
+}
+
+fn security(args: SecurityArgs) -> Result<()> {
+    match args.command {
+        SecurityCommands::Audit => {
+            let default = SecurityConfig::default();
+            println!("security audit");
+            println!("- bind_host={} (localhost-first)", default.bind_host);
+            println!("- allow_lan={}", default.allow_lan);
+            println!("- allow_cloud={}", default.allow_cloud);
+            println!("- private_mode={}", default.private_mode);
+            println!("- max_request_bytes={}", default.max_request_bytes);
+            println!("- max_context_tokens={}", default.max_context_tokens);
+            println!("- audit_log_path={}", default.audit_log_path);
+            Ok(())
+        }
+    }
+}
+
+fn audit(args: AuditArgs) -> Result<()> {
+    match args.command {
+        AuditCommands::Verify { path } => verify_audit_chain(&path),
+    }
+}
+
+fn smoke(args: SmokeArgs) -> Result<()> {
+    match args.command {
+        SmokeCommands::Local => {
+            let status = Command::new("bash")
+                .arg("scripts/smoke-local-stack.sh")
+                .status()
+                .context("failed to launch smoke script")?;
+            if status.success() {
+                println!("smoke local passed");
+                Ok(())
+            } else {
+                anyhow::bail!("smoke local failed; check script output")
+            }
+        }
+    }
+}
+
+fn adaptive(args: AdaptiveArgs) -> Result<()> {
+    match args.command {
+        AdaptiveCommands::Status => {
+            let telemetry_path = default_telemetry_path();
+            let events = TelemetryEngine::load_jsonl(&telemetry_path).unwrap_or_default();
+            println!("adaptive status");
+            println!("- telemetry_file={}", telemetry_path.display());
+            println!("- events={}", events.len());
+            Ok(())
+        }
+        AdaptiveCommands::Explain => explain_adaptive(),
+        AdaptiveCommands::Reset => {
+            let telemetry_path = default_telemetry_path();
+            if telemetry_path.exists() {
+                fs::remove_file(&telemetry_path)?;
+            }
+            println!("adaptive telemetry reset");
+            Ok(())
+        }
+    }
+}
+
+fn verify_binary(path: PathBuf, sha256: &str) -> Result<()> {
+    let output = Command::new("sha256sum")
+        .arg(&path)
+        .output()
+        .with_context(|| format!("failed to execute sha256sum for {}", path.display()))?;
+    if !output.status.success() {
+        anyhow::bail!("sha256sum command failed for {}", path.display());
+    }
+    let stdout = String::from_utf8(output.stdout)?;
+    let actual = stdout
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    if actual.eq_ignore_ascii_case(sha256) {
+        println!("verified {}", path.display());
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "checksum mismatch for {} expected={} actual={}",
+            path.display(),
+            sha256,
+            actual
+        )
+    }
+}
+
+fn verify_audit_chain(path: &Path) -> Result<()> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("unable to read audit log {}", path.display()))?;
+    let mut lines = content.lines();
+    let first = lines.next().unwrap_or_default();
+    let mut valid = !first.is_empty();
+    let mut count = usize::from(valid);
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        valid &= line.contains("event=") && line.contains("payload=");
+        count += 1;
+    }
+    if valid {
+        println!("audit verify ok lines={count}");
+        Ok(())
+    } else {
+        anyhow::bail!("audit verify failed for {}", path.display())
+    }
 }
 
 fn calibrate() -> Result<()> {
@@ -493,47 +686,6 @@ fn explain_adaptive() -> Result<()> {
     Ok(())
 }
 
-fn load_mode() -> Result<RuntimeMode> {
-    let path = state_dir().join(MODE_FILE);
-    if !path.exists() {
-        return Ok(DEFAULT_MODE);
-    }
-    let mode = fs::read_to_string(path)?.trim().to_string();
-    parse_mode(&mode).with_context(|| format!("invalid saved mode value: {mode}"))
-}
-
-fn parse_mode(input: &str) -> Result<RuntimeMode> {
-    match input {
-        "tiny" => Ok(RuntimeMode::Tiny),
-        "local" => Ok(RuntimeMode::Local),
-        "performance" => Ok(RuntimeMode::Performance),
-        "gateway" => Ok(RuntimeMode::Gateway),
-        "dev" => Ok(RuntimeMode::Dev),
-        _ => anyhow::bail!("unsupported mode: {input}"),
-    }
-}
-
-fn port_open(addr: &str) -> bool {
-    match addr.parse::<SocketAddr>() {
-        Ok(socket) => TcpStream::connect_timeout(&socket, Duration::from_millis(80)).is_ok(),
-        Err(_) => false,
-    }
-}
-
-fn latency_ms(addr: &str) -> f64 {
-    match addr.parse::<SocketAddr>() {
-        Ok(socket) => {
-            let start = Instant::now();
-            if TcpStream::connect_timeout(&socket, Duration::from_millis(300)).is_ok() {
-                start.elapsed().as_secs_f64() * 1000.0
-            } else {
-                -1.0
-            }
-        }
-        Err(_) => -1.0,
-    }
-}
-
 fn sim_run() -> Result<()> {
     let mut runner = ScenarioRunner::new(1234);
     runner.push_event(SimEvent {
@@ -580,15 +732,130 @@ fn sim_run() -> Result<()> {
     Ok(())
 }
 
-fn models_list() -> Result<()> {
-    let state = ServerState::default();
-    for model in &state.registry.models {
-        println!(
-            "{} backend={} available={} status={}",
-            model.id, model.backend, model.available, model.status
-        );
+fn recommend_mode() -> RuntimeMode {
+    let cpu = detect_cpu_features();
+    if cpu.avx2 || cpu.neon {
+        RuntimeMode::Local
+    } else {
+        RuntimeMode::Tiny
     }
+}
+
+fn load_mode() -> Result<RuntimeMode> {
+    let path = state_dir().join(MODE_FILE);
+    if !path.exists() {
+        return Ok(DEFAULT_MODE);
+    }
+    let mode = fs::read_to_string(path)?.trim().to_string();
+    parse_mode(&mode).with_context(|| format!("invalid saved mode value: {mode}"))
+}
+
+fn save_mode(mode: RuntimeMode) -> Result<()> {
+    let dir = state_dir();
+    fs::create_dir_all(&dir)?;
+    fs::write(dir.join(MODE_FILE), mode.to_string())?;
     Ok(())
+}
+
+fn parse_mode(input: &str) -> Result<RuntimeMode> {
+    match input {
+        "tiny" => Ok(RuntimeMode::Tiny),
+        "local" => Ok(RuntimeMode::Local),
+        "performance" => Ok(RuntimeMode::Performance),
+        "cost-saver" => Ok(RuntimeMode::CostSaver),
+        "private" => Ok(RuntimeMode::Private),
+        "cluster" => Ok(RuntimeMode::Cluster),
+        "developer" => Ok(RuntimeMode::Developer),
+        _ => anyhow::bail!("unsupported mode: {input}"),
+    }
+}
+
+fn provider_health() -> Vec<ProviderHealth> {
+    vec![
+        provider_status("llama.cpp", "127.0.0.1:8080", check_llamacpp),
+        provider_status("vllm", "127.0.0.1:8000", check_vllm),
+        provider_status("litellm", "127.0.0.1:4000", check_litellm),
+        ProviderHealth {
+            name: "cloud",
+            endpoint: "disabled-by-default",
+            available: false,
+            reason: "cloud provider remains disabled until explicitly configured".to_string(),
+        },
+    ]
+}
+
+fn provider_status(
+    name: &'static str,
+    endpoint: &'static str,
+    checker: fn(&str) -> Result<()>,
+) -> ProviderHealth {
+    match checker(endpoint) {
+        Ok(()) => ProviderHealth {
+            name,
+            endpoint,
+            available: true,
+            reason: "healthy".to_string(),
+        },
+        Err(err) => ProviderHealth {
+            name,
+            endpoint,
+            available: false,
+            reason: err.to_string(),
+        },
+    }
+}
+
+fn check_vllm(endpoint: &str) -> Result<()> {
+    http_get_contains(endpoint, "/v1/models", "data")
+}
+
+fn check_litellm(endpoint: &str) -> Result<()> {
+    http_get_contains(endpoint, "/v1/models", "data")
+}
+
+fn check_llamacpp(endpoint: &str) -> Result<()> {
+    http_get_contains(endpoint, "/health", "ok")
+}
+
+fn http_get_contains(endpoint: &str, path: &str, needle: &str) -> Result<()> {
+    let mut stream =
+        TcpStream::connect(endpoint).with_context(|| format!("no server at {endpoint}"))?;
+    stream.set_read_timeout(Some(Duration::from_millis(800)))?;
+    stream.set_write_timeout(Some(Duration::from_millis(800)))?;
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {endpoint}\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes())?;
+    let mut buf = String::new();
+    stream.read_to_string(&mut buf)?;
+    if buf.starts_with("HTTP/1.1 200") || buf.starts_with("HTTP/1.0 200") {
+        if buf.contains(needle) {
+            Ok(())
+        } else {
+            anyhow::bail!("endpoint responded but missing expected marker '{needle}'")
+        }
+    } else {
+        anyhow::bail!("unexpected HTTP response from {endpoint}")
+    }
+}
+
+fn latency_ms(addr: &str) -> f64 {
+    match addr.parse::<SocketAddr>() {
+        Ok(socket) => {
+            let start = Instant::now();
+            if TcpStream::connect_timeout(&socket, Duration::from_millis(300)).is_ok() {
+                start.elapsed().as_secs_f64() * 1000.0
+            } else {
+                -1.0
+            }
+        }
+        Err(_) => -1.0,
+    }
+}
+
+fn state_dir() -> PathBuf {
+    if let Ok(custom) = env::var("SAWYER_STATE_DIR") {
+        return PathBuf::from(custom);
+    }
+    PathBuf::from(".sawyer")
 }
 
 fn default_telemetry_path() -> PathBuf {
