@@ -1,7 +1,7 @@
 //! Deterministic telemetry capture and local persistence.
 
 use std::collections::VecDeque;
-use std::fs::{create_dir_all, File, OpenOptions};
+use std::fs::{create_dir_all, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
