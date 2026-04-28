@@ -9,6 +9,16 @@ pub struct CpuFeatures {
     pub neon: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionPath {
+    Scalar,
+}
+
+pub fn summarize_cpu_execution_path(features: CpuFeatures) -> &'static str {
+    let _ = features;
+    "cpu-scalar"
+}
+
 pub fn detect_cpu_features() -> CpuFeatures {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
@@ -41,7 +51,7 @@ pub fn dot_product(lhs: &[f32], rhs: &[f32]) -> Result<f32, &'static str> {
         return Err("input lengths mismatch");
     }
 
-    // Placeholder dispatch strategy: choose scalar path explicitly until SIMD kernels are verified.
+    // Explicit scalar fallback: SIMD paths are intentionally disabled until verified.
     Ok(dot_product_scalar(lhs, rhs))
 }
 
