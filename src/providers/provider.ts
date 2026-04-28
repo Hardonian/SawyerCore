@@ -16,10 +16,17 @@ export interface ProviderCapabilities {
   supportsPrivateData: boolean;
 }
 
+export interface ProviderHealth {
+  healthy: boolean;
+  reason?: string;
+  models?: string[];
+  timeoutMs?: number;
+}
+
 export interface RuntimeProvider {
   readonly name: string;
   readonly target: ProviderTarget;
-  healthCheck(): Promise<{ healthy: boolean; reason?: string }>;
+  healthCheck(): Promise<ProviderHealth>;
   estimateCost(task: AiTask): number;
   estimateLatency(task: AiTask): number;
   supportsTask(task: AiTask): boolean;

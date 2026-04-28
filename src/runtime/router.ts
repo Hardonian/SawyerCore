@@ -7,6 +7,12 @@ import { AuditLogger } from '../observability/audit.js';
 
 export type RoutingDecision = ProviderTarget | 'DENY';
 
+export interface RoutingResult {
+  decision: RoutingDecision;
+  result?: InferenceResult;
+  reasons: string[];
+}
+
 export class SawyerRouter {
   private readonly optimizer = new SawyerOptimizationEngine();
   private readonly policyEngine: PolicyEngine;
@@ -19,7 +25,7 @@ export class SawyerRouter {
     this.policyEngine = new PolicyEngine(config.policy);
   }
 
-  async route(task: AiTask, tenantId: string, signals: RoutingSignals): Promise<{ decision: RoutingDecision; result?: InferenceResult; reasons: string[] }> {
+  async route(task: AiTask, tenantId: string, signals: RoutingSignals): Promise<RoutingResult> {
     const denied: Array<{ provider: string; reason: string }> = [];
     const scored: Array<{ provider: RuntimeProvider; score: number }> = [];
 
@@ -29,22 +35,23 @@ export class SawyerRouter {
         denied.push({ provider: provider.name, reason: health.reason ?? 'unhealthy' });
         continue;
       }
+
       const policyDecision = this.policyEngine.evaluate(task, provider, {
         tenantId,
         model: `${provider.name}-default-model`,
         requestedTokens: task.maxContextTokens
       });
+
       if (!policyDecision.allowed) {
         denied.push({ provider: provider.name, reason: policyDecision.reasons.join('; ') });
         continue;
       }
+
       scored.push({ provider, score: this.optimizer.score(task, provider, signals) });
     }
 
     scored.sort((a, b) => b.score - a.score);
-
-    const chosen = scored[0];
-    if (!chosen) {
+    if (scored.length === 0) {
       this.audit.log({
         taskId: task.id,
         requestedTask: task.type,
@@ -58,18 +65,37 @@ export class SawyerRouter {
       return { decision: 'DENY', reasons: denied.map((d) => `${d.provider}: ${d.reason}`) };
     }
 
-    const result = await chosen.provider.runInference(task);
+    for (const candidate of scored) {
+      try {
+        const result = await candidate.provider.runInference(task);
+        this.audit.log({
+          taskId: task.id,
+          requestedTask: task.type,
+          selectedProvider: candidate.provider.name,
+          deniedProviders: denied,
+          costEstimateUsd: candidate.provider.estimateCost(task),
+          latencyEstimateMs: candidate.provider.estimateLatency(task),
+          policyDecision: 'allow',
+          fallbackPath: scored.map((s) => s.provider.name),
+          status: 'success'
+        });
+        return { decision: candidate.provider.target, result, reasons: [] };
+      } catch (error) {
+        denied.push({ provider: candidate.provider.name, reason: (error as Error).message });
+      }
+    }
+
     this.audit.log({
       taskId: task.id,
       requestedTask: task.type,
-      selectedProvider: chosen.provider.name,
+      selectedProvider: 'DENY',
       deniedProviders: denied,
-      costEstimateUsd: chosen.provider.estimateCost(task),
-      latencyEstimateMs: chosen.provider.estimateLatency(task),
-      policyDecision: 'allow',
+      policyDecision: 'deny',
       fallbackPath: scored.map((s) => s.provider.name),
-      status: 'success'
+      degradedState: 'providers failed at runtime',
+      status: 'failed'
     });
-    return { decision: chosen.provider.target, result, reasons: [] };
+
+    return { decision: 'DENY', reasons: denied.map((d) => `${d.provider}: ${d.reason}`) };
   }
 }
