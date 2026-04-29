@@ -38,7 +38,10 @@ export class ExecutionLog {
   private readonly entries: ExecutionLogEntry[] = [];
 
   constructor(config: Partial<ExecutionLogConfig> = {}) {
-    this.config = { ...DEFAULT_LOG_CONFIG, ...config };
+    this.config = {
+      filePath: config.filePath ?? DEFAULT_LOG_CONFIG.filePath,
+      rotateBytes: config.rotateBytes ?? DEFAULT_LOG_CONFIG.rotateBytes
+    };
     mkdirSync(dirname(this.config.filePath), { recursive: true });
   }
 

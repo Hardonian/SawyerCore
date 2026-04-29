@@ -469,6 +469,7 @@ async fn metrics() -> Json<MetricsResponse> {
 
 async fn chat(
     State(state): State<ServerState>,
+    headers: HeaderMap,
     Json(request): Json<ChatRequest>,
 ) -> impl IntoResponse {
     if total_context_tokens(&request) > state.security.max_context_tokens {
@@ -498,10 +499,28 @@ async fn chat(
         }
     }
 
+    let tenant_id = extract_tenant_id_from_headers(&state, &headers);
+
     let req_for_log = serde_json::to_string(&request).unwrap_or_else(|_| "{}".to_string());
     state.log_audit("chat_request", &req_for_log);
 
-    match state.adapter.chat(request) {
+    let start_time = Instant::now();
+    let result = state.adapter.chat(request);
+    let duration_ms = start_time.elapsed().as_millis();
+
+    if let Some(tid) = &tenant_id {
+        state.billing.record_task_usage(tid);
+        state.billing.record_compute_usage(tid, duration_ms);
+        if let Some(telemetry) = state.billing.telemetry.lock().ok() {
+            let _ = telemetry.record_event(TelemetryEvent::TaskCompleted {
+                tenant_id: tid.clone(),
+                duration_ms,
+                model: request.model.clone(),
+            });
+        }
+    }
+
+    match result {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(err) => {
             let body = serde_json::json!({
@@ -514,6 +533,15 @@ async fn chat(
             (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
         }
     }
+}
+
+fn extract_tenant_id_from_headers(state: &ServerState, headers: &HeaderMap) -> Option<String> {
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|h| h.to_str().ok())?;
+    
+    let tenant = state.billing.validate_api_key(api_key);
+    tenant.map(|t| t.id)
 }
 
 fn total_context_tokens(request: &ChatRequest) -> usize {
@@ -570,6 +598,91 @@ pub async fn serve(bind: &str, state: ServerState, unsafe_dev: bool) -> anyhow::
 
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[derive(Serialize)]
+struct BillingUsageResponse {
+    tenant_id: String,
+    tasks_this_period: u64,
+    compute_minutes_this_period: f64,
+    agent_runs_this_period: u64,
+    api_calls_this_period: u64,
+    total_cost_usd: f64,
+    period_start: String,
+    period_end: String,
+}
+
+#[derive(Deserialize)]
+struct RegisterTenantRequest {
+    id: String,
+    api_key: String,
+    name: String,
+    plan: String,
+    max_concurrent_tasks: u32,
+    max_storage_bytes: u64,
+    max_api_calls_per_minute: u32,
+    max_agents: u32,
+}
+
+#[derive(Serialize)]
+struct RegisterTenantResponse {
+    success: bool,
+    tenant_id: String,
+}
+
+async fn billing_usage(
+    State(state): State<ServerState>,
+    axum::extract::Path(tenant_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let usage = state.billing.get_usage_report(&tenant_id);
+    match usage {
+        Some(u) => (
+            StatusCode::OK,
+            Json(BillingUsageResponse {
+                tenant_id: u.tenant_id,
+                tasks_this_period: u.tasks_this_period,
+                compute_minutes_this_period: u.compute_minutes_this_period,
+                agent_runs_this_period: u.agent_runs_this_period,
+                api_calls_this_period: u.api_calls_this_period,
+                total_cost_usd: u.total_cost_usd,
+                period_start: u.period_start,
+                period_end: u.period_end,
+            }),
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "tenant usage not found"})),
+        )
+            .into_response(),
+    }
+}
+
+async fn billing_register_tenant(
+    State(state): State<ServerState>,
+    Json(request): Json<RegisterTenantRequest>,
+) -> impl IntoResponse {
+    let tenant = TenantConfig {
+        id: request.id.clone(),
+        api_key: request.api_key.clone(),
+        name: request.name.clone(),
+        plan: request.plan.clone(),
+        max_concurrent_tasks: request.max_concurrent_tasks,
+        max_storage_bytes: request.max_storage_bytes,
+        max_api_calls_per_minute: request.max_api_calls_per_minute,
+        max_agents: request.max_agents,
+    };
+
+    state.billing.register_tenant(tenant);
+
+    (
+        StatusCode::CREATED,
+        Json(RegisterTenantResponse {
+            success: true,
+            tenant_id: request.id,
+        }),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -700,5 +813,93 @@ mod tests {
             ..ServerState::default()
         };
         assert!(state.validate_startup(false).is_err());
+    }
+
+    #[test]
+    fn billing_state_tracks_tenant_usage() {
+        let billing = BillingState::default();
+        billing.register_tenant(TenantConfig {
+            id: "tenant-1".to_string(),
+            api_key: "sk_test123".to_string(),
+            name: "Test Tenant".to_string(),
+            plan: "starter".to_string(),
+            max_concurrent_tasks: 10,
+            max_storage_bytes: 1_000_000,
+            max_api_calls_per_minute: 100,
+            max_agents: 5,
+        });
+
+        assert!(billing.validate_api_key("sk_test123").is_some());
+        assert!(billing.validate_api_key("invalid_key").is_none());
+
+        billing.record_task_usage("tenant-1");
+        billing.record_task_usage("tenant-1");
+        billing.record_compute_usage("tenant-1", 30_000);
+
+        let usage = billing.get_usage_report("tenant-1").unwrap();
+        assert_eq!(usage.tasks_this_period, 2);
+        assert!(usage.compute_minutes_this_period > 0.0);
+    }
+
+    #[test]
+    fn tenant_isolation_prevents_cross_tenant_access() {
+        let billing = BillingState::default();
+        billing.register_tenant(TenantConfig {
+            id: "tenant-a".to_string(),
+            api_key: "sk_tenant_a".to_string(),
+            name: "Tenant A".to_string(),
+            plan: "starter".to_string(),
+            max_concurrent_tasks: 10,
+            max_storage_bytes: 1_000_000,
+            max_api_calls_per_minute: 100,
+            max_agents: 5,
+        });
+        billing.register_tenant(TenantConfig {
+            id: "tenant-b".to_string(),
+            api_key: "sk_tenant_b".to_string(),
+            name: "Tenant B".to_string(),
+            plan: "pro".to_string(),
+            max_concurrent_tasks: 50,
+            max_storage_bytes: 5_000_000,
+            max_api_calls_per_minute: 500,
+            max_agents: 20,
+        });
+
+        let tenant_a = billing.validate_api_key("sk_tenant_a").unwrap();
+        let tenant_b = billing.validate_api_key("sk_tenant_b").unwrap();
+
+        assert_eq!(tenant_a.id, "tenant-a");
+        assert_eq!(tenant_b.id, "tenant-b");
+        assert_ne!(tenant_a.api_key, tenant_b.api_key);
+
+        billing.record_task_usage("tenant-a");
+        let usage_a = billing.get_usage_report("tenant-a").unwrap();
+        let usage_b = billing.get_usage_report("tenant-b");
+
+        assert_eq!(usage_a.tasks_this_period, 1);
+        assert!(usage_b.is_none() || usage_b.unwrap().tasks_this_period == 0);
+    }
+
+    #[test]
+    fn billing_quota_enforcement() {
+        let billing = BillingState::default();
+        billing.register_tenant(TenantConfig {
+            id: "limited-tenant".to_string(),
+            api_key: "sk_limited".to_string(),
+            name: "Limited Tenant".to_string(),
+            plan: "free".to_string(),
+            max_concurrent_tasks: 5,
+            max_storage_bytes: 500_000,
+            max_api_calls_per_minute: 10,
+            max_agents: 1,
+        });
+
+        for _ in 0..10 {
+            billing.record_task_usage("limited-tenant");
+        }
+
+        let (allowed, reason) = billing.check_quota("limited-tenant");
+        assert!(!allowed);
+        assert!(reason.is_some());
     }
 }
