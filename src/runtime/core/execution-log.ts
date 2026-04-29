@@ -36,6 +36,7 @@ const DEFAULT_LOG_CONFIG: ExecutionLogConfig = {
 export class ExecutionLog {
   private readonly config: ExecutionLogConfig;
   private readonly entries: ExecutionLogEntry[] = [];
+  private currentSizeBytes = 0;
 
   constructor(config: Partial<ExecutionLogConfig> = {}) {
     this.config = {
@@ -43,6 +44,11 @@ export class ExecutionLog {
       rotateBytes: config.rotateBytes ?? DEFAULT_LOG_CONFIG.rotateBytes
     };
     mkdirSync(dirname(this.config.filePath), { recursive: true });
+    
+    // Initialize size tracker
+    if (existsSync(this.config.filePath)) {
+      this.currentSizeBytes = statSync(this.config.filePath).size;
+    }
   }
 
   append(entry: ExecutionLogEntry): void {
@@ -67,17 +73,30 @@ export class ExecutionLog {
       return [];
     }
     const raw = readFileSync(this.config.filePath, 'utf8');
-    return raw
+    const loaded = raw
       .split('\n')
       .filter((line) => line.trim().length > 0)
       .map((line) => JSON.parse(line) as ExecutionLogEntry);
+    
+    this.entries.push(...loaded);
+    return loaded;
   }
 
   private persistEntry(entry: ExecutionLogEntry): void {
-    if (existsSync(this.config.filePath) && statSync(this.config.filePath).size >= this.config.rotateBytes) {
+    const data = `${JSON.stringify(entry)}\n`;
+    const dataSize = Buffer.byteLength(data, 'utf8');
+
+    if (this.currentSizeBytes + dataSize >= this.config.rotateBytes) {
       const rotatedPath = `${this.config.filePath}.${Date.now()}.bak`;
-      renameSync(this.config.filePath, rotatedPath);
+      try {
+        renameSync(this.config.filePath, rotatedPath);
+        this.currentSizeBytes = 0;
+      } catch {
+        // Fallback or ignore if rename fails
+      }
     }
-    appendFileSync(this.config.filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8' });
+    
+    appendFileSync(this.config.filePath, data, { encoding: 'utf8' });
+    this.currentSizeBytes += dataSize;
   }
 }

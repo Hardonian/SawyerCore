@@ -24,6 +24,7 @@ export class MeshAuditLogger {
   private static instance: MeshAuditLogger;
   private eventCounter = 0;
   private clock: () => number = () => Date.now();
+  private events: MeshAuditEvent[] = [];
 
   private constructor() {}
 
