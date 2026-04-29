@@ -25,7 +25,13 @@
     "verify:security": "vitest run tests/system/convergence.test.ts -t \"verify:security\"",
     "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json",
     "sawyer:check-env": "tsx scripts/check-env.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "ci:classify": "tsx scripts/ci/classify-failure.ts",
+    "ci:repair-plan": "tsx scripts/ci/repair-plan.ts",
+    "ci:verify-repair": "tsx scripts/ci/verify-repair.ts",
+    "verify:ci-health": "tsx scripts/ci/ci-health.ts",
+    "verify:repo-state": "tsx scripts/ci/repo-state.ts",
+    "verify:release": "tsx scripts/release/sentinel.ts"
   },
   "lint-staged": {
     "*.ts": [
