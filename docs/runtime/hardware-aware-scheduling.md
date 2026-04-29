@@ -29,4 +29,5 @@ SawyerCore dynamically routes tasks based on real-time hardware telemetry.
 - `DEGRADED_LOCAL_ONLY`: No remote available, running in minimal local mode.
 
 ## Configuration
+
 Limits are defined in the `AutonomyContract`. Tasks that exceed their declared budget or available system resources will be routed to remote nodes or rejected with a `DEGRADED` status.

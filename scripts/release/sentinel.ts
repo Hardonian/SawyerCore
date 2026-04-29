@@ -79,7 +79,7 @@ function isCriticalPath(file: string): boolean {
 }
 
 function checkTypecheck(): CheckResult {
-  const result = runCommand('npm run typecheck');
+  const result = runCommand('npm run typecheck', 60000);
   if (result.success) {
     return { name: 'TypeScript typecheck', status: 'pass', severity: 'required', message: 'No type errors found' };
   }
@@ -96,11 +96,10 @@ function checkTypecheck(): CheckResult {
 }
 
 function checkLint(): CheckResult {
-  const result = runCommand('npm run lint');
+  const result = runCommand('npm run lint', 60000);
   if (result.success) {
     return { name: 'ESLint', status: 'pass', severity: 'required', message: 'No lint violations' };
   }
-  runCommand('npm run lint'); // result.output check
   return {
     name: 'ESLint',
     status: 'fail',
@@ -112,10 +111,18 @@ function checkLint(): CheckResult {
 }
 
 function checkTests(): CheckResult {
-  // Run tests but don't hang forever
-  const result = runCommand('npm test', undefined);
+  const result = runCommand('npm test', 300000);
   if (result.success) {
     return { name: 'Test suite', status: 'pass', severity: 'required', message: 'All tests passed' };
+  }
+  if (result.error.includes('timed out')) {
+    return {
+      name: 'Test suite',
+      status: 'fail',
+      severity: 'required',
+      message: 'Test suite timed out (exceeded 5 min)',
+      details: result.error
+    };
   }
   // Parse test failures
   const failingMatch = result.output.match(/(\d+)\s+failed/);
@@ -131,10 +138,8 @@ function checkTests(): CheckResult {
 }
 
 function checkBuild(): CheckResult {
-  // Rust build
-  const rustResult = runCommand('cargo build --workspace');
-  // TypeScript build
-  const tsResult = runCommand('npm run build');
+  const rustResult = runCommand('cargo build --workspace', 300000);
+  const tsResult = runCommand('npm run build', 120000);
 
   if (rustResult.success && tsResult.success) {
     return { name: 'Build (Rust + TS)', status: 'pass', severity: 'required', message: 'All builds succeeded' };
@@ -153,7 +158,6 @@ function checkBuild(): CheckResult {
     evidence: [...(rustResult.error.split('\n').slice(0, 5)), ...(tsResult.error.split('\n').slice(0, 5))]
   };
 }
-
 function checkForbiddenComments(): CheckResult {
   const criticalExts = ['.ts', '.tsx', '.rs'];
   const forbidden = ['TODO', 'FIXME', 'HACK', 'XXX'];
@@ -262,7 +266,7 @@ function checkSecretLeakage(): CheckResult {
 
 function checkEnvFiles(): CheckResult {
   // Check if any .env files are tracked by git
-  const gitResult = runCommand('git ls-files', process.cwd());
+  const gitResult = runCommand('git ls-files');
   if (!gitResult.success) {
     return { name: 'Committed env files', status: 'skip', severity: 'required', message: 'Not a git repository (or git unavailable)' };
   }

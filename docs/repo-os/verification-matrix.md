@@ -7,7 +7,7 @@ This matrix defines all automated and manual verification gates required for any
 ## Command Matrix
 
 | Gate | Command | Category | Pass Criteria | Notes |
-|------|---------|----------|---------------|-------|
+| :--- | :--- | :--- | :--- | :--- |
 | Type Check | `npm run typecheck` | Required | Zero TS errors | No `any` allowed |
 | Lint | `npm run lint` | Required | Zero ESLint errors | No eslint-disable hacks |
 | Unit Tests | `npm test` | Required | 100% pass | No flaky tests |
