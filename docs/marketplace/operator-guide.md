@@ -21,4 +21,5 @@
 If a plugin installation fails or the plugin causes system instability, the installer maintains a `.backup` of the previous stable version. A rollback is triggered automatically if the `init` hook fails.
 
 ## Health Monitoring
+
 Operators can monitor plugin resource usage (CPU/Memory) via the `AutonomyContract` dashboard. Plugins exceeding their `resourceLimits` will be throttled or terminated.

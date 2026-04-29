@@ -63,6 +63,7 @@ This matrix defines all automated and manual verification gates required for any
 ## Verification Logic
 
 Each gate MUST be:
+
 1. **Deterministic** — same input → same result
 2. **Evidence-based** — actual code/state inspection
 3. **Non-fake** — must actually run, not just print "OK"
@@ -72,6 +73,7 @@ Each gate MUST be:
 ## Override Policy
 
 Overrides require:
+
 - Explicit reason documented in PR
 - Approved by ≥2 maintainers
 - Temporary (max 30 days)
