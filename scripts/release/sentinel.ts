@@ -19,7 +19,7 @@
  */
 
 import { execSync } from 'child_process';
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'fs';
 import { join, relative } from 'path';
 
 type CheckStatus = 'pass' | 'fail' | 'warn' | 'skip';
