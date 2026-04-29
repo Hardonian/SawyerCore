@@ -122,6 +122,10 @@ export class TenantManager {
         return updated;
     }
     async deleteAgentConfig(id) {
+        const config = agentConfigs.get(id);
+        if (config) {
+            tenantAgentConfigs.get(config.tenantId)?.delete(id);
+        }
         return agentConfigs.delete(id);
     }
     async createReferral(referrerTenantId, referredEmail) {
@@ -200,16 +204,24 @@ export class TenantManager {
     }
     async clearTenantData(tenantId) {
         tenants.delete(tenantId);
-        for (const [key, apiKey] of apiKeys.entries()) {
-            if (apiKey.tenantId === tenantId) {
-                apiKeys.delete(key);
-                tenantByApiKey.delete(apiKey.key);
+        const keyIds = tenantApiKeys.get(tenantId);
+        if (keyIds) {
+            for (const id of keyIds) {
+                const apiKey = apiKeys.get(id);
+                if (apiKey) {
+                    apiKeyToId.delete(apiKey.key);
+                    tenantByApiKey.delete(apiKey.key);
+                    apiKeys.delete(id);
+                }
             }
+            tenantApiKeys.delete(tenantId);
         }
-        for (const [key, config] of agentConfigs.entries()) {
-            if (config.tenantId === tenantId) {
-                agentConfigs.delete(key);
+        const agentIds = tenantAgentConfigs.get(tenantId);
+        if (agentIds) {
+            for (const id of agentIds) {
+                agentConfigs.delete(id);
             }
+            tenantAgentConfigs.delete(tenantId);
         }
         for (const [key, referral] of referrals.entries()) {
             if (referral.referrerTenantId === tenantId) {

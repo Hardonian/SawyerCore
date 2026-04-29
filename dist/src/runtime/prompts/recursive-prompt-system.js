@@ -7,26 +7,34 @@ export class RecursivePromptSystem {
         const memory = new PromptMemory(input.variables ?? []);
         const order = this.resolveFragmentOrder(input.rootFragmentId, fragments);
         const warnings = [];
+        // Pre-hydrate memory from fragments to avoid multiple resolve passes
         for (const fragmentId of order) {
             const fragment = fragments.get(fragmentId);
-            if (!fragment)
-                continue;
-            for (const variable of fragment.variables ?? []) {
-                if (memory.get(variable.name) === undefined) {
-                    memory.set(variable.name, variable.value);
+            if (fragment?.variables) {
+                for (const variable of fragment.variables) {
+                    if (memory.get(variable.name) === undefined) {
+                        memory.set(variable.name, variable.value);
+                    }
                 }
             }
         }
-        const rendered = order
-            .map((fragmentId) => {
+        const resolvedParts = [];
+        for (const fragmentId of order) {
             const fragment = fragments.get(fragmentId);
-            return fragment ? memory.resolve(fragment.template).trim() : '';
-        })
-            .filter((part) => part.length > 0)
-            .join('\n\n');
+            if (fragment) {
+                const part = memory.resolve(fragment.template).trim();
+                if (part.length > 0) {
+                    resolvedParts.push(part);
+                }
+            }
+        }
+        const rendered = resolvedParts.join('\n\n');
         const budgeted = applyTokenBudget(rendered, input.tokenBudget);
-        if (input.tokenBudget && estimateTokens(rendered) > input.tokenBudget) {
-            warnings.push('prompt trimmed to token budget');
+        if (input.tokenBudget) {
+            const fullEstimate = estimateTokens(rendered);
+            if (fullEstimate > input.tokenBudget) {
+                warnings.push('prompt trimmed to token budget');
+            }
         }
         return {
             prompt: budgeted,

@@ -16,15 +16,13 @@ export class SawyerRouter {
         const denied = [];
         const scored = [];
         const blockedProviderNames = new Set(signals.blockedProviderNames ?? []);
-        for (const provider of this.providers) {
+        const results = await Promise.all(this.providers.map(async (provider) => {
             if (blockedProviderNames.has(provider.name)) {
-                denied.push({ provider: provider.name, reason: 'blocked by execution graph preference' });
-                continue;
+                return { provider, state: 'denied', reason: 'blocked by execution graph preference' };
             }
             const health = await provider.healthCheck();
             if (!health.healthy) {
-                denied.push({ provider: provider.name, reason: health.reason ?? 'unhealthy' });
-                continue;
+                return { provider, state: 'denied', reason: health.reason ?? 'unhealthy' };
             }
             const model = provider.name === 'vllm' ? this.config.providers.vllm.model : provider.name;
             const policyDecision = this.policyEngine.evaluate(task, provider, {
@@ -34,11 +32,18 @@ export class SawyerRouter {
                 providerHealthy: health.healthy
             });
             if (!policyDecision.allowed) {
-                denied.push({ provider: provider.name, reason: policyDecision.reasons.join('; ') });
-                continue;
+                return { provider, state: 'denied', reason: policyDecision.reasons.join('; ') };
             }
             const scoring = this.optimizer.score(task, provider, signals);
-            scored.push({ provider, score: scoring.total, breakdown: scoring.breakdown });
+            return { provider, state: 'scored', score: scoring.total, breakdown: scoring.breakdown };
+        }));
+        for (const res of results) {
+            if (res.state === 'denied') {
+                denied.push({ provider: res.provider.name, reason: res.reason });
+            }
+            else if (res.state === 'scored') {
+                scored.push({ provider: res.provider, score: res.score, breakdown: res.breakdown });
+            }
         }
         scored.sort((a, b) => b.score - a.score || a.provider.name.localeCompare(b.provider.name));
         const chosen = scored[0];
