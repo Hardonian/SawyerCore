@@ -1,7 +1,7 @@
-export { UsageTracker } from './usage-tracker';
-export { BillingController } from './controller';
-export { PricingCatalog } from './pricing';
-export { createBillingRouter } from './router';
+export { UsageTracker } from './usage-tracker.js';
+export { BillingController } from './controller.js';
+export { PricingCatalog } from './pricing.js';
+export { createBillingRouter } from './router.js';
 export {
   initStripe,
   createCustomer,
@@ -12,7 +12,7 @@ export {
   reportUsageToMeter,
   generatePaymentLink,
   getCustomerBalance
-} from './stripe';
+} from './stripe.js';
 export {
   UsageEventType,
   UsageRecordSchema,
@@ -20,7 +20,7 @@ export {
   StripeCustomerSchema,
   BillingPeriodSchema,
   TenantResourceLimitsSchema
-} from './types';
+} from './types.js';
 export type {
   UsageRecord,
   UsageEventType as UsageEventTypeType,
@@ -28,4 +28,4 @@ export type {
   StripeCustomer,
   BillingPeriod,
   TenantResourceLimits
-} from './types';
+} from './types.js';

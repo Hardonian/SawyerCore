@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
-import { UsageRecord, UsageEventType, StripeCustomer, BillingPeriod } from './types';
-import { UsageTracker } from './usage-tracker';
-import { PricingCatalog } from './pricing';
+import { UsageRecord, UsageEventType, StripeCustomer, BillingPeriod } from './types.js';
+import { UsageTracker } from './usage-tracker.js';
+import { PricingCatalog } from './pricing.js';
 
 let stripeClient: Stripe | null = null;
 
