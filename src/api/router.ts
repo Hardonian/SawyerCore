@@ -48,21 +48,8 @@ export function createApiRouter(): Router {
     try {
       const tenantId = (req as any).tenantId;
       const validated = TaskInputSchema.parse(req.body);
-      
-      const quota = await billing.checkTenantQuota(tenantId);
-      if (!quota.canExecute) {
-        res.status(429).json({ error: quota.reason });
-        return;
-      }
 
       const result = await runTask(tenantId, validated);
-      
-      await billing.recordTaskUsage(
-        tenantId,
-        result.runId,
-        result.latencyMs,
-        result.tokensUsed ?? 0
-      );
 
       res.json(result);
     } catch (error) {

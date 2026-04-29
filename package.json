@@ -19,6 +19,10 @@
     "verify:determinism": "vitest run tests/runtime/determinism.test.ts",
     "verify:low-resource": "vitest run tests/runtime/safety.test.ts --reporter=verbose",
     "verify:degraded-modes": "vitest run tests/runtime/safety.test.ts tests/runtime/memory.test.ts --reporter=verbose",
+    "verify:end-to-end": "vitest run tests/system/convergence.test.ts -t \"verify:end-to-end\"",
+    "verify:autonomy": "vitest run tests/system/convergence.test.ts -t \"verify:autonomy\"",
+    "verify:cost-efficiency": "vitest run tests/system/convergence.test.ts -t \"verify:cost-efficiency\"",
+    "verify:security": "vitest run tests/system/convergence.test.ts -t \"verify:security\"",
     "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json"
   },
   "engines": {

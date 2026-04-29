@@ -285,6 +285,14 @@ export class UnifiedExecutionGraph {
     return [...this.history];
   }
 
+  recordHistoricalOutcome(entry: HistoricalRun): void {
+    this.history.push(entry);
+    this.decisionEngine.recordOutcome(entry);
+    if (!entry.success) {
+      this.failureHistory[entry.provider] = (this.failureHistory[entry.provider] ?? 0) + 1;
+    }
+  }
+
   getFailureHistory(): Readonly<Record<string, number>> {
     return { ...this.failureHistory };
   }
@@ -409,12 +417,7 @@ export class UnifiedExecutionGraph {
         : null,
       timestampIso: this.graphConfig.clock()
     };
-    this.history.push(outcome);
-    this.decisionEngine.recordOutcome(outcome);
-
-    if (!outcome.success) {
-      this.failureHistory[provider] = (this.failureHistory[provider] ?? 0) + 1;
-    }
+    this.recordHistoricalOutcome(outcome);
   }
 
   private receiptFromCached(

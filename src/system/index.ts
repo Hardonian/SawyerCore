@@ -1,5 +1,5 @@
 export { AutonomyLoop, TaskDetector, IntentResolver, WorkflowOrchestrator } from './autonomy/index.js';
-export type { AutonomyLoopConfig, TickReport, TaskDetectorConfig, IntentDefaults, OrchestratorConfig, WorkflowResult } from './autonomy/index.js';
+export type { AutonomyLoopConfig, TickReport, TaskDetectorConfig, IntentDefaults, ExecutionEngine, OrchestratorConfig, WorkflowResult } from './autonomy/index.js';
 export { UnifiedExecutionGraph } from './execution-graph.js';
 export type { ExecutionGraphConfig, ExecutionGraphStage, ExecutionGraphStageStatus, ExecutionGraphTrace, UnifiedExecutionInput, UnifiedExecutionReceipt } from './execution-graph.js';
 export { EventBus, ScheduleRegistry } from './events/index.js';

@@ -6,7 +6,7 @@
  * This is the bridge between the autonomy queue and the execution layer.
  */
 
-import type { DeterministicEngine, ExecutionReceipt } from '../../runtime/core/deterministic-engine.js';
+import type { ExecutionReceipt } from '../../runtime/core/deterministic-engine.js';
 import type { RoutingSignals } from '../../runtime/optimization-engine.js';
 import type { TaskDetector } from './task-detector.js';
 import type { IntentResolver, IntentDefaults } from './intent-resolver.js';
@@ -46,8 +46,12 @@ export interface WorkflowResult {
   error: string | null;
 }
 
+export interface ExecutionEngine {
+  execute(task: ReturnType<IntentResolver['resolve']>, tenantId: string, signals: RoutingSignals): Promise<ExecutionReceipt>;
+}
+
 export class WorkflowOrchestrator {
-  private readonly engine: DeterministicEngine;
+  private readonly engine: ExecutionEngine;
   private readonly taskDetector: TaskDetector;
   private readonly intentResolver: IntentResolver;
   private readonly healthAggregator: HealthAggregator;
@@ -56,7 +60,7 @@ export class WorkflowOrchestrator {
   private readonly failureHistory: Record<string, number> = {};
 
   constructor(
-    engine: DeterministicEngine,
+    engine: ExecutionEngine,
     taskDetector: TaskDetector,
     intentResolver: IntentResolver,
     healthAggregator: HealthAggregator,
