@@ -41,32 +41,36 @@ interface StripeLikeClient {
   };
 }
 
-import Stripe from 'stripe';
-
 let stripeClient: any | null = null;
 let stripeApiKeyConfigured = false;
+let configuredApiKey: string | null = null;
 
 export function initStripe(apiKey: string, client?: any): void {
   stripeApiKeyConfigured = apiKey.trim().length > 0;
   if (client) {
     stripeClient = client;
   } else if (stripeApiKeyConfigured) {
-    stripeClient = new Stripe(apiKey, {
-      apiVersion: '2024-04-10' as any, // Use latest stable
-    });
+    configuredApiKey = apiKey;
   }
 }
 
 export function isStripeReady(): boolean {
-  return stripeClient !== null;
+  return stripeClient !== null || configuredApiKey !== null;
 }
 
-function getStripe(): StripeLikeClient {
+async function getStripe(): Promise<StripeLikeClient> {
   if (!stripeApiKeyConfigured) {
     throw new Error('Stripe setup required: STRIPE_SECRET_KEY is not configured');
   }
   if (!stripeClient) {
-    throw new Error('Stripe setup required: inject a Stripe client into initStripe(apiKey, client)');
+    if (configuredApiKey) {
+      const { default: Stripe } = await import('stripe');
+      stripeClient = new Stripe(configuredApiKey, {
+        apiVersion: '2024-04-10' as any,
+      });
+    } else {
+      throw new Error('Stripe setup required: inject a Stripe client into initStripe(apiKey, client)');
+    }
   }
   return stripeClient;
 }
@@ -76,7 +80,7 @@ export async function createCustomer(
   email: string,
   metadata?: Record<string, string>
 ): Promise<StripeCustomer> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const customer = await stripe.customers.create({
     email,
     metadata: {
@@ -98,7 +102,7 @@ export async function createSubscription(
   priceId: string,
   trialDays?: number
 ): Promise<{ subscriptionId: string; status: StripeSubscriptionStatus; periodEnd: Date }> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const params: {
     customer: string;
     items: Array<{ price: string }>;
@@ -124,7 +128,7 @@ export async function createSubscription(
 }
 
 export async function updateSubscription(subscriptionId: string, newPriceId: string): Promise<void> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const itemId = subscription.items.data[0]?.id;
   if (!itemId) {
@@ -136,12 +140,12 @@ export async function updateSubscription(subscriptionId: string, newPriceId: str
 }
 
 export async function cancelSubscription(subscriptionId: string): Promise<void> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   await stripe.subscriptions.cancel(subscriptionId);
 }
 
 export async function createInvoice(stripeCustomerId: string, billingPeriod: BillingPeriod): Promise<string> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const invoice = await stripe.invoices.create({
     customer: stripeCustomerId,
     auto_advance: false
@@ -168,7 +172,7 @@ export async function reportUsageToMeter(
   record: UsageRecord,
   stripeSubscriptionItemId: string
 ): Promise<void> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   await stripe.subscriptionItems.createUsageRecord(stripeSubscriptionItemId, {
     quantity: record.quantity,
     timestamp: Math.floor(record.timestamp.getTime() / 1000),
@@ -177,7 +181,7 @@ export async function reportUsageToMeter(
 }
 
 export async function getCustomerBalance(stripeCustomerId: string): Promise<number> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const balance = await stripe.customers.retrieve(stripeCustomerId);
   return balance.invoice_credit_balance?.usd ?? 0;
 }

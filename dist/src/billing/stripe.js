@@ -1,32 +1,38 @@
 import { PricingCatalog } from './pricing.js';
-import Stripe from 'stripe';
 let stripeClient = null;
 let stripeApiKeyConfigured = false;
+let configuredApiKey = null;
 export function initStripe(apiKey, client) {
     stripeApiKeyConfigured = apiKey.trim().length > 0;
     if (client) {
         stripeClient = client;
     }
     else if (stripeApiKeyConfigured) {
-        stripeClient = new Stripe(apiKey, {
-            apiVersion: '2024-04-10', // Use latest stable
-        });
+        configuredApiKey = apiKey;
     }
 }
 export function isStripeReady() {
-    return stripeClient !== null;
+    return stripeClient !== null || configuredApiKey !== null;
 }
-function getStripe() {
+async function getStripe() {
     if (!stripeApiKeyConfigured) {
         throw new Error('Stripe setup required: STRIPE_SECRET_KEY is not configured');
     }
     if (!stripeClient) {
-        throw new Error('Stripe setup required: inject a Stripe client into initStripe(apiKey, client)');
+        if (configuredApiKey) {
+            const { default: Stripe } = await import('stripe');
+            stripeClient = new Stripe(configuredApiKey, {
+                apiVersion: '2024-04-10',
+            });
+        }
+        else {
+            throw new Error('Stripe setup required: inject a Stripe client into initStripe(apiKey, client)');
+        }
     }
     return stripeClient;
 }
 export async function createCustomer(tenantId, email, metadata) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const customer = await stripe.customers.create({
         email,
         metadata: {
@@ -42,7 +48,7 @@ export async function createCustomer(tenantId, email, metadata) {
     };
 }
 export async function createSubscription(stripeCustomerId, priceId, trialDays) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const params = {
         customer: stripeCustomerId,
         items: [{ price: priceId }],
@@ -59,7 +65,7 @@ export async function createSubscription(stripeCustomerId, priceId, trialDays) {
     };
 }
 export async function updateSubscription(subscriptionId, newPriceId) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
     const itemId = subscription.items.data[0]?.id;
     if (!itemId) {
@@ -70,11 +76,11 @@ export async function updateSubscription(subscriptionId, newPriceId) {
     });
 }
 export async function cancelSubscription(subscriptionId) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     await stripe.subscriptions.cancel(subscriptionId);
 }
 export async function createInvoice(stripeCustomerId, billingPeriod) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const invoice = await stripe.invoices.create({
         customer: stripeCustomerId,
         auto_advance: false
@@ -94,7 +100,7 @@ export async function createInvoice(stripeCustomerId, billingPeriod) {
     return finalized.id;
 }
 export async function reportUsageToMeter(_stripeCustomerId, record, stripeSubscriptionItemId) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     await stripe.subscriptionItems.createUsageRecord(stripeSubscriptionItemId, {
         quantity: record.quantity,
         timestamp: Math.floor(record.timestamp.getTime() / 1000),
@@ -102,7 +108,7 @@ export async function reportUsageToMeter(_stripeCustomerId, record, stripeSubscr
     });
 }
 export async function getCustomerBalance(stripeCustomerId) {
-    const stripe = getStripe();
+    const stripe = await getStripe();
     const balance = await stripe.customers.retrieve(stripeCustomerId);
     return balance.invoice_credit_balance?.usd ?? 0;
 }

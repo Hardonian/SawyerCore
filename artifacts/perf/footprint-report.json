@@ -1,0 +1,133 @@
+{
+  "generatedAt": "2026-04-29T02:31:49.335Z",
+  "summary": {
+    "totalDeps": 207,
+    "totalDepSizeKB": 55392,
+    "criticalDeps": 12,
+    "duplicateModules": [
+      "@types",
+      "@typescript-eslint"
+    ],
+    "buildArtifactSizeKB": 540,
+    "maxImportDepth": 1
+  },
+  "heaviestDeps": [
+    {
+      "name": "typescript",
+      "sizeKB": 23071,
+      "depth": 1,
+      "isDev": true
+    },
+    {
+      "name": "stripe",
+      "sizeKB": 14370,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "zod",
+      "sizeKB": 3510,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "eslint",
+      "sizeKB": 3081,
+      "depth": 1,
+      "isDev": true
+    },
+    {
+      "name": "rollup",
+      "sizeKB": 2768,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "vite",
+      "sizeKB": 2183,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "vitest",
+      "sizeKB": 1347,
+      "depth": 1,
+      "isDev": true
+    },
+    {
+      "name": "esquery",
+      "sizeKB": 1071,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "ajv",
+      "sizeKB": 916,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "yaml",
+      "sizeKB": 669,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "acorn",
+      "sizeKB": 546,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "minimatch",
+      "sizeKB": 524,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "uri-js",
+      "sizeKB": 459,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "magic-string",
+      "sizeKB": 449,
+      "depth": 1,
+      "isDev": false
+    },
+    {
+      "name": "chai",
+      "sizeKB": 428,
+      "depth": 1,
+      "isDev": false
+    }
+  ],
+  "duplicates": [
+    {
+      "module": "@types",
+      "occurrences": [
+        "@types/express",
+        "@types/node",
+        "@types/stripe"
+      ]
+    },
+    {
+      "module": "@typescript-eslint",
+      "occurrences": [
+        "@typescript-eslint/eslint-plugin",
+        "@typescript-eslint/parser"
+      ]
+    }
+  ],
+  "slowLoadingPaths": [],
+  "unnecessaryImports": [],
+  "optimizationRecommendations": [
+    "Consider replacing or lazy-loading typescript (22.5 MB) if used in cold paths.",
+    "Deduplicate overlapping packages: @types, @typescript-eslint (2 duplicate sets)",
+    "Total installed dependencies: 54.1 MB. Consider pruning devDependencies in production.",
+    "Convert eager imports to lazy dynamic imports for cold-start-critical paths.",
+    "Split optional providers into separate entry points for edge runtime.",
+    "Gate expensive analytics or billing initialization behind runtime flags."
+  ]
+}
