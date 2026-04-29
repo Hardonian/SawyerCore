@@ -9,7 +9,7 @@
  *
  * Budgets are loaded from config (tenant pricing tier) and task-level limits.
  */
-class ExecutionBudgetTracker {
+export class ExecutionBudgetTracker {
     taskBudgets = new Map();
     tenantBudgets = new Map();
     minBudgetUsd = 0.0001; // minimum non-zero

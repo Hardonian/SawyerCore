@@ -104,12 +104,9 @@ async function main() {
         logLines = content.split('\n');
     }
     else {
-        // Read from stdin
-        const chunks = [];
-        for await (const chunk of process.stdin) {
-            chunks.push(chunk);
-        }
-        logLines = Buffer.concat(chunks).toString('utf-8').split('\n');
+        // Read all from stdin synchronously (file descriptor 0)
+        const data = readFileSync(0, 'utf-8');
+        logLines = data.split('\n');
     }
     const classification = classify(logLines);
     console.log(JSON.stringify(classification, null, 2));

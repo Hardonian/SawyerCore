@@ -1,20 +1,27 @@
 import { z } from 'zod';
+export const NodeStatusSchema = z.enum(['online', 'offline', 'degraded', 'stale', 'failed', 'active']);
 export const NodeSchema = z.object({
-    id: z.string().uuid(),
+    id: z.string(),
     address: z.string().url(),
     capabilities: z.array(z.string()), // Capabilities from contracts.ts
     publicKey: z.string(),
     lastSeen: z.number().optional(),
-    status: z.enum(['online', 'offline', 'degraded']),
+    status: NodeStatusSchema,
     metadata: z.record(z.any()).default({}),
 });
 export class NodeRegistry {
     nodes = new Map();
+    selfId = null;
+    setSelf(nodeId) {
+        this.selfId = nodeId;
+    }
+    getSelf() {
+        return this.selfId ? this.nodes.get(this.selfId) : undefined;
+    }
     register(node) {
-        // Validate signature would happen here in a real scenario
         this.nodes.set(node.id, {
             ...node,
-            lastSeen: Date.now(), // Determinism note: in production this should be passed or synced
+            lastSeen: Date.now(),
         });
     }
     deregister(nodeId) {
@@ -35,6 +42,10 @@ export class NodeRegistry {
             node.status = status;
             node.lastSeen = Date.now();
         }
+    }
+    clear() {
+        this.nodes.clear();
+        this.selfId = null;
     }
 }
 export const globalRegistry = new NodeRegistry();

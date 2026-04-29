@@ -1,8 +1,8 @@
 import { globalRegistry } from './node-registry.js';
 export class TaskRouter {
-    static selectNode(task) {
+    selectNode(task) {
         const candidates = globalRegistry.getNodesWithCapability(task.requiredCapability)
-            .filter(n => n.status === 'online');
+            .filter(n => n.status === 'online' || n.status === 'active');
         if (candidates.length === 0) {
             return null; // Degrade to local if mesh unavailable handled by caller
         }
@@ -13,7 +13,7 @@ export class TaskRouter {
             return scoreB - scoreA;
         })[0];
     }
-    static calculateScore(node, task) {
+    calculateScore(node, task) {
         const cpu = node.metadata.cpu || 1;
         const activeTasks = node.metadata.activeTasks || 0;
         // Simple heuristic: higher availability (lower CPU/tasks) is better

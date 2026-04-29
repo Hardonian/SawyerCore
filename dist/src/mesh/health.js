@@ -31,7 +31,7 @@ export class HealthMonitor {
             }
         }
     }
-    static verifySignature(report, publicKey) {
+    static verifySignature(report, _publicKey) {
         // Placeholder for cryptographic verification
         // In Zeo, everything must be signed.
         return report.signature.length > 0;

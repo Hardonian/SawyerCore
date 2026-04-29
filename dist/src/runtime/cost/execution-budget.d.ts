@@ -18,7 +18,7 @@ export interface BudgetState {
     remainingUsd: number;
     exhausted: boolean;
 }
-declare class ExecutionBudgetTracker {
+export declare class ExecutionBudgetTracker {
     private taskBudgets;
     private tenantBudgets;
     private readonly minBudgetUsd;
@@ -62,4 +62,3 @@ declare class ExecutionBudgetTracker {
     reset(): void;
 }
 export declare const budgetTracker: ExecutionBudgetTracker;
-export {};

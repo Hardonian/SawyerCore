@@ -6,6 +6,6 @@ export interface RouteMetric {
     resourceAvailability: number;
 }
 export declare class TaskRouter {
-    static selectNode(task: AiTask): Node | null;
-    private static calculateScore;
+    selectNode(task: AiTask): Node | null;
+    private calculateScore;
 }

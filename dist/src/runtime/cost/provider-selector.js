@@ -17,11 +17,11 @@ export class CostAwareProviderSelector {
      * Select the most cost-appropriate provider for a task.
      * Decision is deterministic for same inputs + provider state.
      */
-    select(task, providers, signals) {
+    async select(task, providers, signals) {
         // 1. Filter available providers
         const healthyProviders = [];
         for (const provider of providers) {
-            const health = provider.healthCheck();
+            const health = await provider.healthCheck();
             if (!health.healthy) {
                 // Skip but don't fail entire selection
                 continue;
@@ -71,7 +71,7 @@ export class CostAwareProviderSelector {
                     costUsd: estimatedCost,
                     expectedLatencyMs: chosen.estimateLatency(task),
                     budgetRemainingUsd: remainingBudget - estimatedCost,
-                    fallbackEligible: true // can fallback to cloud if needed
+                    fallbackEligible: remoteProviders.length > 0
                 };
             }
             else {
@@ -81,7 +81,7 @@ export class CostAwareProviderSelector {
                     costUsd: estimatedCost,
                     expectedLatencyMs: chosen.estimateLatency(task),
                     budgetRemainingUsd: remainingBudget,
-                    fallbackEligible: true
+                    fallbackEligible: remoteProviders.length > 0
                 };
             }
         }

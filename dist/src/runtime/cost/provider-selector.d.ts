@@ -29,7 +29,7 @@ export declare class CostAwareProviderSelector {
         memoryAvailableMB?: number;
         batteryPercent?: number;
         thermalState?: 'nominal' | 'warm' | 'hot';
-    }): SelectionDecision;
+    }): Promise<SelectionDecision>;
     /**
      * Determine if task complexity warrants local execution consideration.
      */
