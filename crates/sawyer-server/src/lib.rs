@@ -265,6 +265,7 @@ pub struct ServerState {
     pub registry: Registry,
     pub adapter: Arc<dyn LocalAdapter>,
     pub security: SecurityConfig,
+    pub billing: BillingState,
     pub node_token: Option<String>,
     pub cloud_api_key_present: bool,
     limiter: Arc<Mutex<HashMap<IpAddr, Vec<Instant>>>>,
@@ -276,6 +277,7 @@ impl Default for ServerState {
             registry: Registry::default(),
             adapter: Arc::new(UnavailableAdapter),
             security: SecurityConfig::default(),
+            billing: BillingState::default(),
             node_token: None,
             cloud_api_key_present: false,
             limiter: Arc::new(Mutex::new(HashMap::new())),
@@ -355,6 +357,8 @@ pub fn router(state: ServerState) -> Router {
         .route("/explain/last", get(explain_last))
         .route("/v1/chat/completions", post(chat))
         .route("/sim/run", post(sim_run))
+        .route("/billing/usage/:tenant_id", get(billing_usage))
+        .route("/billing/register_tenant", post(billing_register_tenant))
         .layer(DefaultBodyLimit::max(max))
         .layer(middleware::from_fn_with_state(
             state.clone(),

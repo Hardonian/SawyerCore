@@ -2,18 +2,19 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'nod
 import { dirname } from 'node:path';
 
 export interface AuditEvent {
-  requestId: string;
-  taskId: string;
-  requestedTask: string;
-  selectedProvider: string | 'DENY';
-  deniedProviders: Array<{ provider: string; reason: string }>;
+  requestId?: string;
+  taskId?: string;
+  requestedTask?: string;
+  selectedProvider?: string | 'DENY';
+  deniedProviders?: Array<{ provider: string; reason: string }>;
   costEstimateUsd?: number;
   latencyEstimateMs?: number;
-  policyDecision: 'allow' | 'deny';
+  policyDecision?: 'allow' | 'deny';
   scoringBreakdown?: Record<string, number>;
-  fallbackPath: string[];
+  fallbackPath?: string[];
   degradedState?: string;
-  status: 'success' | 'denied' | 'failed';
+  status?: 'success' | 'denied' | 'failed' | 'system_event';
+  systemEvent?: unknown;
   timestamp: string;
 }
 
@@ -78,7 +79,7 @@ export class JsonlAuditSink implements AuditSink {
 function sanitize(event: AuditEvent): AuditEvent {
   return {
     ...event,
-    deniedProviders: event.deniedProviders.map((item) => ({
+    deniedProviders: event.deniedProviders?.map((item) => ({
       provider: item.provider,
       reason: item.reason.replace(/(api[_-]?key|token|secret)=\S+/gi, '$1=[redacted]')
     }))
