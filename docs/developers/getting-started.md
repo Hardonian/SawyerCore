@@ -3,14 +3,18 @@
 Welcome to the SawyerCore developer platform. This SDK allows you to build plugins and external integrations for the Sawyer AI operating layer.
 
 ## Prerequisites
+
 - Node.js 18+
 - TypeScript 5.0+
 
 ## Installation
+
 Currently, the SDK is available locally in the repository.
 
 ```bash
+
 npm install ./sdk
+
 ```
 
 ## Creating Your First Plugin
@@ -40,6 +44,7 @@ npm install ./sdk
 ```
 
 2. Create `index.js`:
+
 ```javascript
 const { SawyerPlugin } = require('./sdk/plugin');
 

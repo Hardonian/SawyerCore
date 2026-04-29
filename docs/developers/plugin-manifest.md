@@ -5,6 +5,7 @@ The `manifest.json` file is required for every SawyerCore plugin. It defines the
 ## Schema
 
 ### Identity
+
 - `id`: Unique string identifier (reverse DNS recommended, e.g., `com.company.plugin`)
 - `name`: Human-readable name
 - `version`: SemVer string
@@ -12,9 +13,11 @@ The `manifest.json` file is required for every SawyerCore plugin. It defines the
 - `author`: Name or organization
 
 ### Execution
+
 - `entryPoint`: Relative path to the main JavaScript file.
 
 ### Permissions
+
 The `permissions` object defines what the plugin is allowed to do.
 
 - `network`: Boolean. If true, allows outbound network requests.
@@ -26,5 +29,6 @@ The `permissions` object defines what the plugin is allowed to do.
 - `maxCPUPatencyMs`: Integer. Maximum allowed execution time for a single hook.
 
 ### Resource Limits
+
 - `cpuLimit`: Float (0.0 to 1.0). Percentage of a single CPU core allocated.
 - `memoryLimit`: Integer. Total memory limit in MB.
