@@ -23,7 +23,14 @@
     "verify:autonomy": "vitest run tests/system/convergence.test.ts -t \"verify:autonomy\"",
     "verify:cost-efficiency": "vitest run tests/system/convergence.test.ts -t \"verify:cost-efficiency\"",
     "verify:security": "vitest run tests/system/convergence.test.ts -t \"verify:security\"",
-    "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json"
+    "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json",
+    "sawyer:check-env": "tsx scripts/check-env.ts",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix"
+    ]
   },
   "engines": {
     "node": ">=20"
