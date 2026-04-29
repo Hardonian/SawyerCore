@@ -3,6 +3,8 @@
         "litellm",
         "onnx",
         "reranking",
+        "rustc",
+        "sawyercore",
         "vllm"
     ]
 }
