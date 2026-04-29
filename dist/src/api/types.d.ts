@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Request } from 'express';
 export declare const ApiKeySchema: z.ZodObject<{
     id: z.ZodString;
     key: z.ZodString;
@@ -31,6 +32,10 @@ export declare const ApiKeySchema: z.ZodObject<{
     rateLimitPerMinute?: number | undefined;
 }>;
 export type ApiKey = z.infer<typeof ApiKeySchema>;
+export interface AuthenticatedRequest extends Request {
+    tenantId: string;
+    apiKey: ApiKey;
+}
 export declare const ApiRequestSchema: z.ZodObject<{
     id: z.ZodString;
     tenantId: z.ZodString;

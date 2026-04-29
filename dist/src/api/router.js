@@ -22,8 +22,9 @@ function tenantGuard(req, res, next) {
                 res.status(429).json({ error: 'Quota exceeded', details: quotaResult.reason });
                 return;
             }
-            req.tenantId = apiKeyData.tenantId;
-            req.apiKey = apiKeyData;
+            const authReq = req;
+            authReq.tenantId = apiKeyData.tenantId;
+            authReq.apiKey = apiKeyData;
             next();
         });
     })
@@ -40,7 +41,8 @@ export function createApiRouter() {
     });
     router.post('/tasks', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const validated = TaskInputSchema.parse(req.body);
             const result = await runTask(tenantId, validated);
             res.json(result);
@@ -69,7 +71,8 @@ export function createApiRouter() {
     });
     router.get('/me', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const tenant = await tenantManager.getTenant(tenantId);
             if (!tenant) {
                 res.status(404).json({ error: 'Tenant not found' });
@@ -89,7 +92,8 @@ export function createApiRouter() {
     });
     router.post('/api-keys', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const { name, scopes, expiresAt } = req.body;
             if (!name || !scopes) {
                 res.status(400).json({ error: 'name and scopes required' });
@@ -104,7 +108,8 @@ export function createApiRouter() {
     });
     router.get('/api-keys', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const keys = await tenantManager.listApiKeys(tenantId);
             res.json(keys.map((k) => ({ ...k, key: '***' })));
         }
@@ -123,7 +128,8 @@ export function createApiRouter() {
     });
     router.post('/agents', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const config = await tenantManager.createAgentConfig({
                 ...req.body,
                 tenantId
@@ -136,7 +142,8 @@ export function createApiRouter() {
     });
     router.get('/agents', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const configs = await tenantManager.listAgentConfigs(tenantId);
             res.json(configs);
         }
@@ -185,7 +192,8 @@ export function createApiRouter() {
     });
     router.post('/share', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const { runId, title, content, expiresAt, password } = req.body;
             const output = await tenantManager.createShareableOutput({
                 tenantId,
@@ -223,7 +231,8 @@ export function createApiRouter() {
     });
     router.get('/my-shares', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const outputs = await tenantManager.getShareableOutputs(tenantId);
             res.json(outputs);
         }
@@ -233,7 +242,8 @@ export function createApiRouter() {
     });
     router.post('/referrals', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const { email } = req.body;
             if (!email) {
                 res.status(400).json({ error: 'email required' });
@@ -248,7 +258,8 @@ export function createApiRouter() {
     });
     router.get('/referrals', tenantGuard, async (req, res) => {
         try {
-            const tenantId = req.tenantId;
+            const authReq = req;
+            const tenantId = authReq.tenantId;
             const referrals = await tenantManager.getReferrals(tenantId);
             res.json(referrals);
         }

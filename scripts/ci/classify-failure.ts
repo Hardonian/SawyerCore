@@ -27,8 +27,9 @@ interface Classification {
   rawLines: string[];
 }
 
-function classify(logLines: string[]): Classification {
+export function classify(logLines: string[]): Classification {
   const text = logLines.join('\n').toLowerCase();
+// ... (rest of the function)
 
   // Type errors: tsc errors, type 'X' is not assignable, etc.
   if (text.includes('error ts') || text.includes('type \'') || text.includes('is not assignable to type') || text.includes('cannot find name')) {
@@ -116,7 +117,7 @@ function extractTestFile(lines: string[]): string | undefined {
 }
 
 // Main
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   let logLines: string[];
 
@@ -125,16 +126,16 @@ function main() {
     const content = readFileSync(args[0], 'utf-8');
     logLines = content.split('\n');
   } else {
-    // Read from stdin
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
-      chunks.push(chunk);
-    }
-    logLines = Buffer.concat(chunks).toString('utf-8').split('\n');
+    // Read all from stdin synchronously (file descriptor 0)
+    const data = readFileSync(0, 'utf-8');
+    logLines = data.split('\n');
   }
 
   const classification = classify(logLines);
   console.log(JSON.stringify(classification, null, 2));
 }
 
-main();
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

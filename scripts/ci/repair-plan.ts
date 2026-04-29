@@ -210,7 +210,7 @@ async function main() {
     for await (const chunk of process.stdin) chunks.push(chunk);
     input = Buffer.concat(chunks).toString('utf-8');
   } else {
-    input = require('fs').readFileSync(args[0], 'utf-8');
+    input = readFileSync(args[0], 'utf-8');
   }
 
   const classification: Classification = JSON.parse(input);

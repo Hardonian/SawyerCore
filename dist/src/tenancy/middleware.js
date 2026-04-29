@@ -56,8 +56,9 @@ export function tenantMiddleware(req, res, next) {
             return;
         }
         const context = await isolationController.createContext(tenant.id, apiKey, apiKeyData.scopes, tenant.resourceLimits);
-        req.tenantContext = context;
-        req.tenantId = context.tenantId;
+        const authReq = req;
+        authReq.tenantContext = context;
+        authReq.tenantId = context.tenantId;
         next();
     })
         .catch((error) => {
@@ -70,7 +71,8 @@ export function tenantMiddleware(req, res, next) {
 }
 export function scopeMiddleware(requiredScopes) {
     return (req, res, next) => {
-        const context = req.tenantContext;
+        const authReq = req;
+        const context = authReq.tenantContext;
         if (!context) {
             res.status(401).json({
                 error: 'Tenant context missing',

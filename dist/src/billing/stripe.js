@@ -1,9 +1,17 @@
 import { PricingCatalog } from './pricing.js';
+import Stripe from 'stripe';
 let stripeClient = null;
 let stripeApiKeyConfigured = false;
 export function initStripe(apiKey, client) {
     stripeApiKeyConfigured = apiKey.trim().length > 0;
-    stripeClient = client ?? null;
+    if (client) {
+        stripeClient = client;
+    }
+    else if (stripeApiKeyConfigured) {
+        stripeClient = new Stripe(apiKey, {
+            apiVersion: '2024-04-10', // Use latest stable
+        });
+    }
 }
 export function isStripeReady() {
     return stripeClient !== null;

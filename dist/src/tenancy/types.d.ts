@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Request } from 'express';
 export declare const TenantContextSchema: z.ZodObject<{
     tenantId: z.ZodString;
     apiKey: z.ZodOptional<z.ZodString>;
@@ -47,6 +48,10 @@ export declare const TenantContextSchema: z.ZodObject<{
     apiKey?: string | undefined;
 }>;
 export type TenantContext = z.infer<typeof TenantContextSchema>;
+export interface AuthenticatedTenantRequest extends Request {
+    tenantContext: TenantContext;
+    tenantId: string;
+}
 export declare const TenantIsolationError: z.ZodObject<{
     type: z.ZodEnum<["tenant_not_found", "invalid_api_key", "quota_exceeded", "scope_violation", "cross_tenant_access", "rate_limit_exceeded"]>;
     message: z.ZodString;
