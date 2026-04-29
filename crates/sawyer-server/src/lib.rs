@@ -64,13 +64,12 @@ pub struct TenantUsage {
     pub agent_runs_this_period: u64,
     pub api_calls_this_period: u64,
     pub total_cost_usd: f64,
-    pub period_start: String,
-    pub period_end: String,
+    pub period_start: u64,
+    pub period_end: u64,
 }
 
 impl TenantUsage {
-    pub fn new(tenant_id: &str) -> Self {
-        let now = chrono_like_now();
+    pub fn new(tenant_id: &str, tick: u64) -> Self {
         Self {
             tenant_id: tenant_id.to_string(),
             tasks_this_period: 0,
@@ -78,8 +77,8 @@ impl TenantUsage {
             agent_runs_this_period: 0,
             api_calls_this_period: 0,
             total_cost_usd: 0.0,
-            period_start: now.clone(),
-            period_end: now,
+            period_start: tick,
+            period_end: tick,
         }
     }
 
@@ -136,25 +135,28 @@ impl BillingState {
 
     pub fn get_or_create_usage(&self, tenant_id: &str) -> TenantUsage {
         let mut usage = self.usage.lock().expect("usage store poisoned");
+        let tick = self.ticks.load(std::sync::atomic::Ordering::SeqCst);
         usage
             .entry(tenant_id.to_string())
-            .or_insert_with(|| TenantUsage::new(tenant_id))
+            .or_insert_with(|| TenantUsage::new(tenant_id, tick))
             .clone()
     }
 
     pub fn record_task_usage(&self, tenant_id: &str) {
         let mut usage = self.usage.lock().expect("usage store poisoned");
+        let tick = self.ticks.load(std::sync::atomic::Ordering::SeqCst);
         let entry = usage
             .entry(tenant_id.to_string())
-            .or_insert_with(|| TenantUsage::new(tenant_id));
+            .or_insert_with(|| TenantUsage::new(tenant_id, tick));
         entry.record_task(self.config.default_rate_per_task);
     }
 
     pub fn record_compute_usage(&self, tenant_id: &str, duration_ms: u128) {
         let mut usage = self.usage.lock().expect("usage store poisoned");
+        let tick = self.ticks.load(std::sync::atomic::Ordering::SeqCst);
         let entry = usage
             .entry(tenant_id.to_string())
-            .or_insert_with(|| TenantUsage::new(tenant_id));
+            .or_insert_with(|| TenantUsage::new(tenant_id, tick));
         entry.record_compute(duration_ms, self.config.default_rate_per_compute_minute);
     }
 
@@ -269,6 +271,8 @@ pub struct ServerState {
     pub node_token: Option<String>,
     pub cloud_api_key_present: bool,
     limiter: Arc<Mutex<HashMap<IpAddr, Vec<Instant>>>>,
+    pub ticks: Arc<std::sync::atomic::AtomicU64>,
+    audit_file: Arc<Mutex<Option<std::fs::File>>>,
 }
 
 impl Default for ServerState {
@@ -281,6 +285,8 @@ impl Default for ServerState {
             node_token: None,
             cloud_api_key_present: false,
             limiter: Arc::new(Mutex::new(HashMap::new())),
+            ticks: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            audit_file: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -315,31 +321,40 @@ impl ServerState {
         if self.security.audit_log_path.is_empty() {
             return;
         }
-        let mut path = PathBuf::from(&self.security.audit_log_path);
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+        
+        let tick = self.ticks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        
         let content = if self.security.redact_logs {
             redact_sensitive(payload)
         } else {
             payload.to_string()
         };
+        
         let line = format!(
-            "{} event={} payload={}\n",
-            chrono_like_now(),
+            "tick={} event={} payload={}\n",
+            tick,
             event,
             content
         );
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+
+        let mut audit_file = self.audit_file.lock().expect("audit file lock poisoned");
+        if audit_file.is_none() {
+            let path = PathBuf::from(&self.security.audit_log_path);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) {
+                *audit_file = Some(file);
+            }
+        }
+
+        if let Some(ref mut file) = *audit_file {
             let _ = file.write_all(line.as_bytes());
         }
-        path.clear();
     }
 }
 
-fn chrono_like_now() -> String {
-    format!("{:?}", std::time::SystemTime::now())
-}
+
 
 fn redact_sensitive(input: &str) -> String {
     input

@@ -8,6 +8,7 @@
         "logicaldisk",
         "microbench",
         "noheader",
+        "oneshot",
         "onnx",
         "Replayable",
         "reranking",
