@@ -34,7 +34,13 @@ export class NodeRegistry {
         return Array.from(this.nodes.values());
     }
     getNodesWithCapability(capability) {
-        return this.getAllNodes().filter(n => n.capabilities.includes(capability));
+        const results = [];
+        for (const n of this.nodes.values()) {
+            if (n.capabilities.includes(capability)) {
+                results.push(n);
+            }
+        }
+        return results;
     }
     updateStatus(nodeId, status) {
         const node = this.nodes.get(nodeId);

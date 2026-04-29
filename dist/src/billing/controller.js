@@ -92,12 +92,16 @@ export class BillingController {
             current: agentRuns,
             limit: tier.limits.maxAgentRunsPerMonth
         };
-        const canExecute = Object.entries(currentUsage).every(([_key, value]) => !value.limit || value.current < value.limit);
+        let canExecute = true;
+        const exceeded = [];
+        for (const [key, value] of Object.entries(currentUsage)) {
+            if (value.limit && value.current >= value.limit) {
+                canExecute = false;
+                exceeded.push(key);
+            }
+        }
         let reason;
         if (!canExecute) {
-            const exceeded = Object.entries(currentUsage)
-                .filter(([, value]) => value.limit && value.current >= value.limit)
-                .map(([key]) => key);
             reason = `Quota exceeded for: ${exceeded.join(', ')}`;
         }
         return { canExecute, reason, currentUsage };

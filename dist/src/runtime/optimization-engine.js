@@ -33,7 +33,14 @@ export class SawyerOptimizationEngine {
         };
         return {
             providerName: provider.name,
-            total: Number(Object.values(breakdown).reduce((sum, x) => sum + x, 0).toFixed(4)),
+            total: Number((breakdown.latency +
+                breakdown.cost +
+                breakdown.privacy +
+                breakdown.availability +
+                breakdown.hardwareMatch +
+                breakdown.taskSuitability +
+                breakdown.failureHistory +
+                breakdown.learnedPreference).toFixed(4)),
             breakdown
         };
     }

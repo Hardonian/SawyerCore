@@ -433,7 +433,7 @@ async function main() {
 
   // Write artifacts
   const artifactsDir = join(process.cwd(), 'artifacts', 'release');
-  require('fs').mkdirSync(artifactsDir, { recursive: true });
+  mkdirSync(artifactsDir, { recursive: true });
 
   const jsonPath = join(artifactsDir, 'sentinel-report.json');
   writeFileSync(jsonPath, JSON.stringify(report, null, 2));

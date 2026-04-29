@@ -47,7 +47,13 @@ export class GrowthEngine {
         return updated;
     }
     async recordPageView(slug) {
-        const page = Array.from(landingPages.values()).find(p => p.slug === slug);
+        let page;
+        for (const p of landingPages.values()) {
+            if (p.slug === slug) {
+                page = p;
+                break;
+            }
+        }
         if (!page)
             return;
         const views = pageViews.get(page.id) ?? 0;
@@ -57,7 +63,13 @@ export class GrowthEngine {
         landingPages.set(page.id, page);
     }
     async recordConversion(slug) {
-        const page = Array.from(landingPages.values()).find(p => p.slug === slug);
+        let page;
+        for (const p of landingPages.values()) {
+            if (p.slug === slug) {
+                page = p;
+                break;
+            }
+        }
         if (!page)
             return;
         const conversions = pageConversions.get(page.id) ?? 0;

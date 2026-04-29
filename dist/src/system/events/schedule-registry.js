@@ -54,7 +54,11 @@ export class ScheduleRegistry {
         return fired;
     }
     list() {
-        return Array.from(this.schedules.values()).map((s) => s.entry);
+        const results = [];
+        for (const s of this.schedules.values()) {
+            results.push(s.entry);
+        }
+        return results;
     }
     getFireCount(id) {
         return this.schedules.get(id)?.fireCount ?? 0;

@@ -122,10 +122,20 @@ export class TenantManager {
         return referral;
     }
     async getReferralByCode(code) {
-        return Array.from(referrals.values()).find(r => r.code === code) ?? null;
+        for (const r of referrals.values()) {
+            if (r.code === code)
+                return r;
+        }
+        return null;
     }
     async completeReferral(code) {
-        const referral = Array.from(referrals.values()).find(r => r.code === code);
+        let referral = null;
+        for (const r of referrals.values()) {
+            if (r.code === code) {
+                referral = r;
+                break;
+            }
+        }
         if (!referral)
             return null;
         referral.status = 'completed';
@@ -165,7 +175,12 @@ export class TenantManager {
         return output;
     }
     async getShareableOutputs(tenantId) {
-        return Array.from(shareableOutputs.values()).filter(o => o.tenantId === tenantId);
+        const results = [];
+        for (const o of shareableOutputs.values()) {
+            if (o.tenantId === tenantId)
+                results.push(o);
+        }
+        return results;
     }
     async clearTenantData(tenantId) {
         tenants.delete(tenantId);
