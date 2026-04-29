@@ -20,7 +20,174 @@ use axum::{
 use sawyer_kernels::detect_cpu_features;
 use sawyer_llm::{ChatRequest, LocalAdapter, Registry, UnavailableAdapter};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
+use sawyer_telemetry::{TelemetryEvent, TelemetryCollector};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BillingConfig {
+    pub enabled: bool,
+    pub stripe_api_key: String,
+    pub default_rate_per_task: f64,
+    pub default_rate_per_compute_minute: f64,
+    pub default_rate_per_agent_run: f64,
+}
+
+impl Default for BillingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            stripe_api_key: String::new(),
+            default_rate_per_task: 0.01,
+            default_rate_per_compute_minute: 0.05,
+            default_rate_per_agent_run: 0.10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantConfig {
+    pub id: String,
+    pub api_key: String,
+    pub name: String,
+    pub plan: String,
+    pub max_concurrent_tasks: u32,
+    pub max_storage_bytes: u64,
+    pub max_api_calls_per_minute: u32,
+    pub max_agents: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantUsage {
+    pub tenant_id: String,
+    pub tasks_this_period: u64,
+    pub compute_minutes_this_period: f64,
+    pub agent_runs_this_period: u64,
+    pub api_calls_this_period: u64,
+    pub total_cost_usd: f64,
+    pub period_start: String,
+    pub period_end: String,
+}
+
+impl TenantUsage {
+    pub fn new(tenant_id: &str) -> Self {
+        let now = chrono_like_now();
+        Self {
+            tenant_id: tenant_id.to_string(),
+            tasks_this_period: 0,
+            compute_minutes_this_period: 0.0,
+            agent_runs_this_period: 0,
+            api_calls_this_period: 0,
+            total_cost_usd: 0.0,
+            period_start: now.clone(),
+            period_end: now,
+        }
+    }
+
+    pub fn record_task(&mut self, rate: f64) {
+        self.tasks_this_period += 1;
+        self.total_cost_usd += rate;
+    }
+
+    pub fn record_compute(&mut self, duration_ms: u128, rate_per_minute: f64) {
+        let minutes = duration_ms as f64 / 60000.0;
+        self.compute_minutes_this_period += minutes;
+        self.total_cost_usd += minutes * rate_per_minute;
+    }
+
+    pub fn record_agent_run(&mut self, rate: f64) {
+        self.agent_runs_this_period += 1;
+        self.total_cost_usd += rate;
+    }
+
+    pub fn record_api_call(&mut self) {
+        self.api_calls_this_period += 1;
+    }
+}
+
+#[derive(Clone)]
+pub struct BillingState {
+    pub config: BillingConfig,
+    pub tenants: Arc<Mutex<HashMap<String, TenantConfig>>>,
+    pub usage: Arc<Mutex<HashMap<String, TenantUsage>>>,
+    pub telemetry: Arc<Mutex<TelemetryCollector>>,
+}
+
+impl Default for BillingState {
+    fn default() -> Self {
+        Self {
+            config: BillingConfig::default(),
+            tenants: Arc::new(Mutex::new(HashMap::new())),
+            usage: Arc::new(Mutex::new(HashMap::new())),
+            telemetry: Arc::new(Mutex::new(TelemetryCollector::new())),
+        }
+    }
+}
+
+impl BillingState {
+    pub fn register_tenant(&self, tenant: TenantConfig) {
+        let mut tenants = self.tenants.lock().expect("tenant registry poisoned");
+        tenants.insert(tenant.id.clone(), tenant);
+    }
+
+    pub fn validate_api_key(&self, api_key: &str) -> Option<TenantConfig> {
+        let tenants = self.tenants.lock().expect("tenant registry poisoned");
+        tenants.values().find(|t| t.api_key == api_key).cloned()
+    }
+
+    pub fn get_or_create_usage(&self, tenant_id: &str) -> TenantUsage {
+        let mut usage = self.usage.lock().expect("usage store poisoned");
+        usage
+            .entry(tenant_id.to_string())
+            .or_insert_with(|| TenantUsage::new(tenant_id))
+            .clone()
+    }
+
+    pub fn record_task_usage(&self, tenant_id: &str) {
+        let mut usage = self.usage.lock().expect("usage store poisoned");
+        let entry = usage
+            .entry(tenant_id.to_string())
+            .or_insert_with(|| TenantUsage::new(tenant_id));
+        entry.record_task(self.config.default_rate_per_task);
+    }
+
+    pub fn record_compute_usage(&self, tenant_id: &str, duration_ms: u128) {
+        let mut usage = self.usage.lock().expect("usage store poisoned");
+        let entry = usage
+            .entry(tenant_id.to_string())
+            .or_insert_with(|| TenantUsage::new(tenant_id));
+        entry.record_compute(duration_ms, self.config.default_rate_per_compute_minute);
+    }
+
+    pub fn check_quota(&self, tenant_id: &str) -> (bool, Option<String>) {
+        let tenants = self.tenants.lock().expect("tenant registry poisoned");
+        let tenant = tenants.get(tenant_id);
+        if tenant.is_none() {
+            return (false, Some("tenant not found".to_string()));
+        }
+        let tenant = tenant.unwrap();
+
+        let usage = self.usage.lock().expect("usage store poisoned");
+        let tenant_usage = usage.get(tenant_id);
+        if tenant_usage.is_none() {
+            return (true, None);
+        }
+        let tenant_usage = tenant_usage.unwrap();
+
+        if tenant_usage.api_calls_this_period >= tenant.max_api_calls_per_minute as u64 {
+            return (
+                false,
+                Some("API call limit exceeded".to_string()),
+            );
+        }
+
+        (true, None)
+    }
+
+    pub fn get_usage_report(&self, tenant_id: &str) -> Option<TenantUsage> {
+        let usage = self.usage.lock().expect("usage store poisoned");
+        usage.get(tenant_id).cloned()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {

@@ -170,7 +170,14 @@ export class TaskDetector {
     for (const item of this.queue) {
       counts[item.status]++;
     }
-    return { ...counts, total: this.queue.length };
+    return {
+      pending: counts.PENDING,
+      running: counts.RUNNING,
+      completed: counts.COMPLETED,
+      failed: counts.FAILED,
+      retrying: counts.RETRYING,
+      total: this.queue.length
+    };
   }
 
   private sortQueue(): void {

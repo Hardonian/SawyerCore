@@ -1,5 +1,5 @@
 import type { AiTask, InferenceResult, Capability } from '../types/contracts.js';
-import type { RuntimeProvider, ProviderCapabilities, ProviderTarget } from './provider.js';
+import type { RuntimeProvider, ProviderCapabilities, ProviderTarget, ProviderHealth } from './provider.js';
 import type { SawyerConfig } from '../types/config.js';
 
 interface ProviderOpts {

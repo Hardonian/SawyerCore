@@ -16,41 +16,50 @@ export const ToggleSchema = z.object({
 
 export type RuntimeToggles = z.infer<typeof ToggleSchema>;
 
-export interface ProviderConfig {
-  name: string;
-  endpoint?: string;
-  timeoutMs: number;
-  retries: number;
-  enabled: boolean;
-  model: string;
-  modelAliases?: Record<string, string>;
-  apiKeyEnv?: string;
-}
+export const ProviderConfigSchema = z.object({
+  name: z.string(),
+  endpoint: z.string().optional(),
+  timeoutMs: z.number(),
+  retries: z.number(),
+  enabled: z.boolean(),
+  model: z.string(),
+  modelAliases: z.record(z.string()).optional(),
+  apiKeyEnv: z.string().optional()
+});
 
-export interface GovernancePolicy {
-  requireAudit: boolean;
-  cloudEgressAllowedFor: ('public' | 'internal')[];
-  denyModelList: string[];
-  allowModelList: string[];
-  maxCostPerRequestUsd: number;
-  maxTokens: number;
-  maxRequestBytes: number;
-  fallbackAllowed: boolean;
-  dataRetention: 'none' | 'transient' | 'standard';
-  tenantPermissions: Record<string, { cloudAllowed: boolean; privateDataCloudAllowed: boolean }>;
-}
+export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
-export interface SawyerConfig {
-  version: string;
-  profile: string;
-  toggles: RuntimeToggles;
-  providers: {
-    vllm: ProviderConfig;
-    litellm: ProviderConfig;
-    cloud: ProviderConfig;
-    llamaCpp: ProviderConfig;
-    onnx: ProviderConfig;
-    mobileNpu: ProviderConfig;
-  };
-  policy: GovernancePolicy;
-}
+export const GovernancePolicySchema = z.object({
+  requireAudit: z.boolean(),
+  cloudEgressAllowedFor: z.array(z.enum(['public', 'internal'])),
+  denyModelList: z.array(z.string()),
+  allowModelList: z.array(z.string()),
+  maxCostPerRequestUsd: z.number(),
+  maxTokens: z.number(),
+  maxRequestBytes: z.number(),
+  fallbackAllowed: z.boolean(),
+  dataRetention: z.enum(['none', 'transient', 'standard']),
+  tenantPermissions: z.record(z.object({
+    cloudAllowed: z.boolean(),
+    privateDataCloudAllowed: z.boolean()
+  }))
+});
+
+export type GovernancePolicy = z.infer<typeof GovernancePolicySchema>;
+
+export const SawyerConfigSchema = z.object({
+  version: z.string(),
+  profile: z.string(),
+  toggles: ToggleSchema,
+  providers: z.object({
+    vllm: ProviderConfigSchema,
+    litellm: ProviderConfigSchema,
+    cloud: ProviderConfigSchema,
+    llamaCpp: ProviderConfigSchema,
+    onnx: ProviderConfigSchema,
+    mobileNpu: ProviderConfigSchema
+  }),
+  policy: GovernancePolicySchema
+});
+
+export type SawyerConfig = z.infer<typeof SawyerConfigSchema>;

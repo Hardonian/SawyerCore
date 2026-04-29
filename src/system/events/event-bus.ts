@@ -22,12 +22,23 @@ export class EventBus {
   private sequence = 0;
   private readonly history: SystemEvent[] = [];
   private readonly maxHistory: number;
+  private readonly anyHandlers = new Set<(event: SystemEvent) => void>();
 
   constructor(options: EventBusOptions = {}, maxHistory = 1000) {
     this.clock = options.clock ?? (() => new Date().toISOString());
     this.maxListeners = options.maxListenersPerEvent ?? 50;
     this.onHandlerError = options.onHandlerError ?? (() => {});
     this.maxHistory = maxHistory;
+  }
+
+  onAny(handler: (event: SystemEvent) => void): () => void {
+    if (this.anyHandlers.size >= this.maxListeners) {
+      throw new Error(`EventBus: max listeners (${this.maxListeners}) exceeded for wildcard event "*"`);
+    }
+    this.anyHandlers.add(handler);
+    return () => {
+      this.anyHandlers.delete(handler);
+    };
   }
 
   on<T extends SystemEventType>(type: T, handler: EventHandler<T>): () => void {
@@ -59,6 +70,14 @@ export class EventBus {
     this.history.push(event as SystemEvent);
     if (this.history.length > this.maxHistory) {
       this.history.shift();
+    }
+
+    for (const handler of this.anyHandlers) {
+      try {
+        handler(event as SystemEvent);
+      } catch (error) {
+        this.onHandlerError('*' as SystemEventType, error as Error);
+      }
     }
 
     const set = this.handlers.get(type);
