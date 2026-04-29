@@ -14,10 +14,10 @@ export declare const LandingPageSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     id: string;
     createdAt: Date;
+    active: boolean;
     title: string;
     content: string;
     views: number;
-    active: boolean;
     slug: string;
     conversions: number;
     metaDescription?: string | undefined;
@@ -26,10 +26,10 @@ export declare const LandingPageSchema: z.ZodObject<{
 }, {
     id: string;
     createdAt: Date;
+    active: boolean;
     title: string;
     content: string;
     views: number;
-    active: boolean;
     slug: string;
     conversions: number;
     metaDescription?: string | undefined;
@@ -137,8 +137,8 @@ export declare const CampaignSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     id: string;
     name: string;
-    status: "completed" | "active" | "paused" | "draft";
-    type: "content" | "email" | "referral" | "social";
+    status: "active" | "completed" | "paused" | "draft";
+    type: "email" | "content" | "referral" | "social";
     content: string;
     targetAudience?: string | undefined;
     scheduledAt?: Date | undefined;
@@ -152,8 +152,8 @@ export declare const CampaignSchema: z.ZodObject<{
 }, {
     id: string;
     name: string;
-    status: "completed" | "active" | "paused" | "draft";
-    type: "content" | "email" | "referral" | "social";
+    status: "active" | "completed" | "paused" | "draft";
+    type: "email" | "content" | "referral" | "social";
     content: string;
     targetAudience?: string | undefined;
     scheduledAt?: Date | undefined;

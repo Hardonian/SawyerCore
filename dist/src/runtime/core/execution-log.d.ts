@@ -24,6 +24,7 @@ export interface ExecutionLogConfig {
 export declare class ExecutionLog {
     private readonly config;
     private readonly entries;
+    private currentSizeBytes;
     constructor(config?: Partial<ExecutionLogConfig>);
     append(entry: ExecutionLogEntry): void;
     getEntries(): readonly ExecutionLogEntry[];

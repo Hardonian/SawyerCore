@@ -50,22 +50,22 @@ export declare const ApiRequestSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     id: string;
     tenantId: string;
-    apiKeyId: string;
     endpoint: string;
+    latencyMs: number;
+    apiKeyId: string;
     method: string;
     timestamp: Date;
-    latencyMs: number;
     statusCode: number;
     requestBodySize?: number | undefined;
     responseBodySize?: number | undefined;
 }, {
     id: string;
     tenantId: string;
-    apiKeyId: string;
     endpoint: string;
+    latencyMs: number;
+    apiKeyId: string;
     method: string;
     timestamp: Date;
-    latencyMs: number;
     statusCode: number;
     requestBodySize?: number | undefined;
     responseBodySize?: number | undefined;
@@ -105,23 +105,23 @@ export declare const TaskResultSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     id: string;
     tenantId: string;
-    timestamp: Date;
-    latencyMs: number;
     runId: string;
-    provider: string;
-    costUsd: number;
+    latencyMs: number;
     degradedState: "NOMINAL" | "MODEL_UNAVAILABLE" | "LOW_MEMORY" | "PARTIAL_EXECUTION";
+    provider: string;
+    timestamp: Date;
+    costUsd: number;
     output?: unknown;
     tokensUsed?: number | undefined;
 }, {
     id: string;
     tenantId: string;
-    timestamp: Date;
-    latencyMs: number;
     runId: string;
-    provider: string;
-    costUsd: number;
+    latencyMs: number;
     degradedState: "NOMINAL" | "MODEL_UNAVAILABLE" | "LOW_MEMORY" | "PARTIAL_EXECUTION";
+    provider: string;
+    timestamp: Date;
+    costUsd: number;
     output?: unknown;
     tokensUsed?: number | undefined;
 }>;

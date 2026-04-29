@@ -12,17 +12,17 @@ export declare const NodeSchema: z.ZodObject<{
     metadata: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodAny>>;
 }, "strip", z.ZodTypeAny, {
     id: string;
-    status: "active" | "failed" | "degraded" | "stale" | "online" | "offline";
+    status: "active" | "degraded" | "stale" | "online" | "offline" | "failed";
     metadata: Record<string, any>;
-    capabilities: string[];
     address: string;
+    capabilities: string[];
     publicKey: string;
     lastSeen?: number | undefined;
 }, {
     id: string;
-    status: "active" | "failed" | "degraded" | "stale" | "online" | "offline";
-    capabilities: string[];
+    status: "active" | "degraded" | "stale" | "online" | "offline" | "failed";
     address: string;
+    capabilities: string[];
     publicKey: string;
     metadata?: Record<string, any> | undefined;
     lastSeen?: number | undefined;

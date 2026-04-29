@@ -9,6 +9,7 @@
         "microbench",
         "noheader",
         "onnx",
+        "Replayable",
         "reranking",
         "rustc",
         "Sandboxed",

@@ -5,6 +5,8 @@
  */
 export class MeshAuditLogger {
     static instance;
+    eventCounter = 0;
+    clock = () => Date.now();
     events = [];
     constructor() { }
     static getInstance() {
@@ -13,20 +15,23 @@ export class MeshAuditLogger {
         }
         return MeshAuditLogger.instance;
     }
+    setClock(clock) {
+        this.clock = clock;
+    }
     log(event) {
         const fullEvent = {
             ...event,
-            id: crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-            timestamp: Date.now()
+            id: `mesh-${++this.eventCounter}-${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: this.clock()
         };
         this.events.push(fullEvent);
-        // For Antigravity: Log must be explicit and deterministic
-        const logMsg = `[MeshAudit] [${fullEvent.action.toUpperCase()}] Task:${fullEvent.taskId} From:${fullEvent.sourceNodeId} To:${fullEvent.targetNodeId} Status:${fullEvent.status}`;
+        // Performance: Only format string if needed or use a lighter format
         if (fullEvent.status === 'failure' || fullEvent.status === 'denied') {
-            console.error(logMsg, fullEvent.details || '');
+            console.error(`[MeshAudit] [${fullEvent.action.toUpperCase()}] Task:${fullEvent.taskId} From:${fullEvent.sourceNodeId} To:${fullEvent.targetNodeId} Status:${fullEvent.status}`, fullEvent.details || '');
         }
         else {
-            console.log(logMsg);
+            // In high-performance mode, we might want to skip this or use a logger
+            console.log(`[MeshAudit] [${fullEvent.action.toUpperCase()}] Task:${fullEvent.taskId} From:${fullEvent.sourceNodeId} To:${fullEvent.targetNodeId} Status:${fullEvent.status}`);
         }
         return fullEvent;
     }

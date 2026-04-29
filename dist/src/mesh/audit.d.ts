@@ -19,9 +19,12 @@ export interface MeshAuditEvent {
 }
 export declare class MeshAuditLogger {
     private static instance;
+    private eventCounter;
+    private clock;
     private events;
     private constructor();
     static getInstance(): MeshAuditLogger;
+    setClock(clock: () => number): void;
     log(event: Omit<MeshAuditEvent, 'id' | 'timestamp'>): MeshAuditEvent;
     getHistory(taskId?: string): MeshAuditEvent[];
     clear(): void;

@@ -17,8 +17,8 @@ export declare const UsageRecordSchema: z.ZodObject<{
     eventType: "task" | "compute" | "agent_run" | "api_call" | "storage" | "bandwidth";
     quantity: number;
     unit: string;
-    runId?: string | undefined;
     metadata?: Record<string, unknown> | undefined;
+    runId?: string | undefined;
 }, {
     id: string;
     tenantId: string;
@@ -26,8 +26,8 @@ export declare const UsageRecordSchema: z.ZodObject<{
     eventType: "task" | "compute" | "agent_run" | "api_call" | "storage" | "bandwidth";
     quantity: number;
     unit: string;
-    runId?: string | undefined;
     metadata?: Record<string, unknown> | undefined;
+    runId?: string | undefined;
 }>;
 export type UsageRecord = z.infer<typeof UsageRecordSchema>;
 export declare const PricingTierSchema: z.ZodObject<{
@@ -121,8 +121,8 @@ export declare const BillingPeriodSchema: z.ZodObject<{
         eventType: "task" | "compute" | "agent_run" | "api_call" | "storage" | "bandwidth";
         quantity: number;
         unit: string;
-        runId?: string | undefined;
         metadata?: Record<string, unknown> | undefined;
+        runId?: string | undefined;
     }, {
         id: string;
         tenantId: string;
@@ -130,16 +130,16 @@ export declare const BillingPeriodSchema: z.ZodObject<{
         eventType: "task" | "compute" | "agent_run" | "api_call" | "storage" | "bandwidth";
         quantity: number;
         unit: string;
-        runId?: string | undefined;
         metadata?: Record<string, unknown> | undefined;
+        runId?: string | undefined;
     }>, "many">;
     totalCostUsd: z.ZodNumber;
     invoiced: z.ZodBoolean;
     stripeInvoiceId: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     tenantId: string;
-    periodStart: Date;
     periodEnd: Date;
+    periodStart: Date;
     usageRecords: {
         id: string;
         tenantId: string;
@@ -147,16 +147,16 @@ export declare const BillingPeriodSchema: z.ZodObject<{
         eventType: "task" | "compute" | "agent_run" | "api_call" | "storage" | "bandwidth";
         quantity: number;
         unit: string;
-        runId?: string | undefined;
         metadata?: Record<string, unknown> | undefined;
+        runId?: string | undefined;
     }[];
     totalCostUsd: number;
     invoiced: boolean;
     stripeInvoiceId?: string | undefined;
 }, {
     tenantId: string;
-    periodStart: Date;
     periodEnd: Date;
+    periodStart: Date;
     usageRecords: {
         id: string;
         tenantId: string;
@@ -164,8 +164,8 @@ export declare const BillingPeriodSchema: z.ZodObject<{
         eventType: "task" | "compute" | "agent_run" | "api_call" | "storage" | "bandwidth";
         quantity: number;
         unit: string;
-        runId?: string | undefined;
         metadata?: Record<string, unknown> | undefined;
+        runId?: string | undefined;
     }[];
     totalCostUsd: number;
     invoiced: boolean;
@@ -182,19 +182,19 @@ export declare const TenantResourceLimitsSchema: z.ZodObject<{
     enabled: z.ZodBoolean;
 }, "strip", z.ZodTypeAny, {
     tenantId: string;
-    enabled: boolean;
     maxConcurrentTasks: number;
     maxStorageBytes: number;
     maxApiCallsPerMinute: number;
     maxAgents: number;
+    enabled: boolean;
     allowedProviders?: string[] | undefined;
 }, {
     tenantId: string;
-    enabled: boolean;
     maxConcurrentTasks: number;
     maxStorageBytes: number;
     maxApiCallsPerMinute: number;
     maxAgents: number;
+    enabled: boolean;
     allowedProviders?: string[] | undefined;
 }>;
 export type TenantResourceLimits = z.infer<typeof TenantResourceLimitsSchema>;

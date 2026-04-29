@@ -25,25 +25,25 @@ export declare const TenantContextSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     tenantId: string;
     scopes: string[];
-    timestamp: Date;
     resourceLimits: {
         maxConcurrentTasks: number;
         maxStorageBytes: number;
         maxApiCallsPerMinute: number;
         maxAgents: number;
     };
+    timestamp: Date;
     requestId: string;
     apiKey?: string | undefined;
 }, {
     tenantId: string;
     scopes: string[];
-    timestamp: Date;
     resourceLimits: {
         maxConcurrentTasks: number;
         maxStorageBytes: number;
         maxApiCallsPerMinute: number;
         maxAgents: number;
     };
+    timestamp: Date;
     requestId: string;
     apiKey?: string | undefined;
 }>;
