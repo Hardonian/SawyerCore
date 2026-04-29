@@ -1,6 +1,6 @@
-import { Request, Response, Router } from 'express';
+import { Router } from 'express';
 import { BillingController } from './controller.js';
-import { createCustomer, createSubscription, cancelSubscription, updateSubscription, generatePaymentLink, initStripe, reportUsageToMeter, createInvoice } from './stripe.js';
+import { createCustomer, createSubscription, cancelSubscription, updateSubscription, generatePaymentLink, initStripe } from './stripe.js';
 import { UsageTracker } from './usage-tracker.js';
 import { PricingCatalog } from './pricing.js';
 import { TenantResourceLimitsSchema } from './types.js';
@@ -36,7 +36,7 @@ export function createBillingRouter(): Router {
 
   router.post('/subscriptions/:id/cancel', async (req, res) => {
     try {
-      await cancelSubscription(req.params.id);
+      await cancelSubscription(req.params.id as string);
       res.json({ canceled: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -46,7 +46,7 @@ export function createBillingRouter(): Router {
   router.post('/subscriptions/:id/update', async (req, res) => {
     try {
       const { priceId } = req.body;
-      await updateSubscription(req.params.id, priceId);
+      await updateSubscription(req.params.id as string, priceId);
       res.json({ updated: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -55,7 +55,7 @@ export function createBillingRouter(): Router {
 
   router.get('/usage/:tenantId', async (req, res) => {
     try {
-      const { tenantId } = req.params;
+      const tenantId = req.params.tenantId as string;
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
       
@@ -77,7 +77,7 @@ export function createBillingRouter(): Router {
 
   router.get('/billing/:tenantId', async (req, res) => {
     try {
-      const { tenantId } = req.params;
+      const tenantId = req.params.tenantId as string;
       const bill = await billing.calculateCurrentBill(tenantId);
       res.json(bill);
     } catch (error) {
@@ -87,7 +87,7 @@ export function createBillingRouter(): Router {
 
   router.get('/quota/:tenantId', async (req, res) => {
     try {
-      const { tenantId } = req.params;
+      const tenantId = req.params.tenantId as string;
       const quota = await billing.checkTenantQuota(tenantId);
       res.json(quota);
     } catch (error) {
@@ -102,7 +102,7 @@ export function createBillingRouter(): Router {
   router.post('/pricing/:tierName/assign', (req, res) => {
     try {
       const { tenantId } = req.body;
-      PricingCatalog.assignTier(tenantId, req.params.tierName);
+      PricingCatalog.assignTier(tenantId, req.params.tierName as string);
       res.json({ assigned: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -125,7 +125,7 @@ export function createBillingRouter(): Router {
 
   router.get('/report/:tenantId', async (req, res) => {
     try {
-      const { tenantId } = req.params;
+      const tenantId = req.params.tenantId as string;
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       
@@ -148,7 +148,7 @@ export function createBillingRouter(): Router {
 
   router.get('/limits/:tenantId', async (req, res) => {
     try {
-      const limits = await usageTracker.getResourceLimits(req.params.tenantId);
+      const limits = await usageTracker.getResourceLimits(req.params.tenantId as string);
       if (!limits) {
         res.status(404).json({ error: 'Limits not found' });
         return;
