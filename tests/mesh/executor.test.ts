@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MeshExecutor } from '../../src/mesh/executor.js';
 import { globalRegistry } from '../../src/mesh/node-registry.js';
+import { meshAudit } from '../../src/mesh/audit.js';
 import type { AiTask } from '../../src/types/contracts.js';
 
 describe('MeshExecutor', () => {
@@ -28,8 +29,9 @@ describe('MeshExecutor', () => {
     mockRouter = {
       selectNode: vi.fn()
     };
-    executor = new MeshExecutor(mockEngine as any, mockRouter as any);
+    executor = new MeshExecutor(mockEngine as any, mockRouter as any, globalRegistry);
     globalRegistry.clear();
+    meshAudit.clear();
   });
 
   it('executes locally when no target node is selected', async () => {
@@ -64,6 +66,10 @@ describe('MeshExecutor', () => {
     expect(result.nodeId).toBe(peerId);
     expect(result.result.output).toContain('REMOTE_RESULT');
     expect(mockEngine.execute).not.toHaveBeenCalled();
+
+    const history = meshAudit.getHistory(sampleTask.id);
+    expect(history.some(e => e.action === 'dispatch' && e.targetNodeId === peerId)).toBe(true);
+    expect(history.some(e => e.action === 'receive' && e.status === 'success')).toBe(true);
   });
 
   it('falls back to local when remote dispatch fails', async () => {
@@ -101,5 +107,8 @@ describe('MeshExecutor', () => {
     expect(result.nodeId).toBe('local');
     expect(result.result.output).toBe('fallback-local');
     expect(mockEngine.execute).toHaveBeenCalled();
+
+    const history = meshAudit.getHistory(sampleTask.id);
+    expect(history.some(e => e.action === 'fallback' && e.status === 'failure')).toBe(true);
   });
 });

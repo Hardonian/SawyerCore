@@ -7,7 +7,8 @@
  */
 
 import { TaskRouter } from './task-routing.js';
-import { globalRegistry } from './node-registry.js';
+import { meshAudit } from './audit.js';
+import { globalRegistry, NodeRegistry } from './node-registry.js';
 import { DeterministicEngine } from '../runtime/core/deterministic-engine.js';
 import type { AiTask, InferenceResult } from '../types/contracts.js';
 import type { RoutingSignals } from '../runtime/optimization-engine.js';
@@ -22,7 +23,8 @@ export interface MeshExecutionResult {
 export class MeshExecutor {
   constructor(
     private readonly localEngine: DeterministicEngine,
-    private readonly taskRouter: TaskRouter
+    private readonly taskRouter: TaskRouter,
+    private readonly nodeRegistry: NodeRegistry
   ) {}
 
   /**
@@ -40,10 +42,41 @@ export class MeshExecutor {
       return this.executeLocally(task, tenantId, signals);
     }
 
+    const selfNode = this.nodeRegistry.getSelf();
+    const sourceNodeId = selfNode?.id || 'unknown-local';
+
+    // 1. Audit dispatch start
+    meshAudit.log({
+      taskId: task.id,
+      sourceNodeId,
+      targetNodeId: targetNode.id,
+      action: 'dispatch',
+      status: 'success'
+    });
+
     try {
-      return await this.dispatchRemote(targetNode.id, task, tenantId, signals);
-    } catch (error) {
-      console.warn(`[Mesh] Remote execution on ${targetNode.id} failed, falling back to local:`, error);
+      const response = await this.dispatchRemote(targetNode.id, task, tenantId, signals);
+      
+      meshAudit.log({
+        taskId: task.id,
+        sourceNodeId,
+        targetNodeId: targetNode.id,
+        action: 'receive',
+        status: 'success'
+      });
+      
+      return response;
+    } catch (err) {
+      const error = err as Error;
+      meshAudit.log({
+        taskId: task.id,
+        sourceNodeId,
+        targetNodeId: targetNode.id,
+        action: 'fallback',
+        status: 'failure',
+        details: error.message
+      });
+      
       return this.executeLocally(task, tenantId, signals);
     }
   }
