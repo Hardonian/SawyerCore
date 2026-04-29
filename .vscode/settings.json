@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "clippy",
         "decisioning",
         "litellm",
         "logicaldisk",
@@ -7,6 +8,7 @@
         "onnx",
         "reranking",
         "rustc",
+        "Sandboxed",
         "sawyercore",
         "uuidv",
         "vllm"
