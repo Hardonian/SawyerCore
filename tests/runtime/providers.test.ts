@@ -23,13 +23,13 @@ describe('providers', () => {
     );
     const health = await provider.healthCheck();
     expect(health.healthy).toBe(true);
-    expect(health.healthy).toBe(true);
+    expect(health.models).toEqual(['test-model']);
   });
 
   it('returns unavailable when endpoint missing', async () => {
-    const provider = new VllmProvider({ name: 'vllm', timeoutMs: 1000, retries: 0 } as any);
+    const provider = new VllmProvider({ name: 'vllm', timeoutMs: 1000, retries: 0 });
     const health = await provider.healthCheck();
     expect(health.healthy).toBe(false);
-    expect(health.reason).toContain('endpoint not configured');
+    expect(health.reason).toContain('missing endpoint');
   });
 });

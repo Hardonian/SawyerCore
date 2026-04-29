@@ -5,6 +5,7 @@ import type { SawyerConfig } from '../types/config.js';
 interface ProviderOpts {
   name: string;
   target: ProviderTarget;
+  enabled?: boolean;
   healthy?: boolean;
   capabilities: Capability[];
   maxContextTokens?: number;
@@ -14,10 +15,10 @@ interface ProviderOpts {
 }
 
 export type OpenAiCompatibleProviderOpts = ProviderOpts & {
-  endpoint: string;
+  endpoint?: string;
   timeoutMs: number;
   retries: number;
-  model: string;
+  model?: string;
   modelAliases?: Record<string, string>;
   apiKey?: string;
 };
@@ -100,7 +101,7 @@ class OpenAiCompatibleProvider extends StubProvider {
     this.endpoint = opts.endpoint?.replace(/\/$/, '') ?? '';
     this.timeoutMs = opts.timeoutMs;
     this.retries = opts.retries;
-    this.model = opts.model;
+    this.model = opts.model ?? `${opts.name}-default-model`;
     this.modelAliases = opts.modelAliases ?? {};
     this.apiKey = opts.apiKey;
   }
@@ -112,16 +113,16 @@ class OpenAiCompatibleProvider extends StubProvider {
   private readonly modelAliases: Record<string, string>;
   private readonly apiKey?: string;
 
-  override async healthCheck(): Promise<{ healthy: boolean; reason?: string }> {
+  override async healthCheck(): Promise<ProviderHealth> {
     if (!this.endpoint) {
-      return { healthy: false, reason: `${this.name} endpoint not configured` };
+      return { healthy: false, reason: `${this.name} missing endpoint` };
     }
     try {
       const models = await this.requestJson<{ data?: Array<{ id: string }> }>('GET', '/models');
       if (!models.data || models.data.length === 0) {
         return { healthy: false, reason: `${this.name} has no advertised models` };
       }
-      return { healthy: true };
+      return { healthy: true, models: models.data.map((model) => model.id).sort() };
     } catch (error) {
       return { healthy: false, reason: `${this.name} unreachable: ${(error as Error).message}` };
     }
