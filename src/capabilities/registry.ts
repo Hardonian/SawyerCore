@@ -16,11 +16,13 @@ export class CapabilityRegistry {
   }
 
   findCompatible(requirements: Partial<Capability>): Capability[] {
-    return Array.from(this.capabilities.values()).filter(cap => {
-      if (requirements.provider && cap.provider !== requirements.provider) return false;
-      if (requirements.offlineSupport && cap.offlineSupport !== requirements.offlineSupport) return false;
-      return true;
-    });
+    const results: Capability[] = [];
+    for (const cap of this.capabilities.values()) {
+      if (requirements.provider && cap.provider !== requirements.provider) continue;
+      if (requirements.offlineSupport && cap.offlineSupport !== requirements.offlineSupport) continue;
+      results.push(cap);
+    }
+    return results;
   }
 
   unregister(id: string) {

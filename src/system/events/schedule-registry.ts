@@ -78,7 +78,11 @@ export class ScheduleRegistry {
   }
 
   list(): readonly ScheduleEntry[] {
-    return Array.from(this.schedules.values()).map((s) => s.entry);
+    const results: ScheduleEntry[] = [];
+    for (const s of this.schedules.values()) {
+      results.push(s.entry);
+    }
+    return results;
   }
 
   getFireCount(id: string): number {

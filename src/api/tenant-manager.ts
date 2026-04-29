@@ -154,11 +154,20 @@ export class TenantManager {
   }
 
   async getReferralByCode(code: string): Promise<Referral | null> {
-    return Array.from(referrals.values()).find(r => r.code === code) ?? null;
+    for (const r of referrals.values()) {
+      if (r.code === code) return r;
+    }
+    return null;
   }
 
   async completeReferral(code: string): Promise<Referral | null> {
-    const referral = Array.from(referrals.values()).find(r => r.code === code);
+    let referral: Referral | null = null;
+    for (const r of referrals.values()) {
+      if (r.code === code) {
+        referral = r;
+        break;
+      }
+    }
     if (!referral) return null;
     referral.status = 'completed';
     referral.convertedAt = new Date();
@@ -207,7 +216,11 @@ export class TenantManager {
   }
 
   async getShareableOutputs(tenantId: string): Promise<ShareableOutput[]> {
-    return Array.from(shareableOutputs.values()).filter(o => o.tenantId === tenantId);
+    const results: ShareableOutput[] = [];
+    for (const o of shareableOutputs.values()) {
+      if (o.tenantId === tenantId) results.push(o);
+    }
+    return results;
   }
 
   async clearTenantData(tenantId: string): Promise<void> {
@@ -235,3 +248,4 @@ export class TenantManager {
     }
   }
 }
+

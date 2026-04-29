@@ -160,15 +160,18 @@ export class BillingController {
       limit: tier.limits.maxAgentRunsPerMonth
     };
 
-    const canExecute = Object.entries(currentUsage).every(
-      ([_key, value]) => !value.limit || value.current < value.limit
-    );
+    let canExecute = true;
+    const exceeded: string[] = [];
+
+    for (const [key, value] of Object.entries(currentUsage)) {
+      if (value.limit && value.current >= value.limit) {
+        canExecute = false;
+        exceeded.push(key);
+      }
+    }
 
     let reason: string | undefined;
     if (!canExecute) {
-      const exceeded = Object.entries(currentUsage)
-        .filter(([, value]) => value.limit && value.current >= value.limit)
-        .map(([key]) => key);
       reason = `Quota exceeded for: ${exceeded.join(', ')}`;
     }
 

@@ -26,6 +26,11 @@ This matrix defines all automated and manual verification gates required for any
 | Cost Efficiency | `npm run verify:cost-efficiency` | System | Cost routing valid | |
 | Security | `npm run verify:security` | System | Security checks | |
 | Release Sentinel | `npm run verify:release` | Release | All gates pass | Blocks release |
+| Hardware | `npm run verify:hardware` | Ecosystem | Hardware detection valid | |
+| Offline | `npm run verify:offline` | Ecosystem | Sync & queue functional | |
+| Plugins | `npm run verify:plugins` | Ecosystem | Manifest & sandbox secure | |
+| SDK | `npm run verify:sdk` | Ecosystem | Degraded state handling valid | |
+| Marketplace | `npm run verify:marketplace` | Ecosystem | Install & rollback valid | |
 | CI Health | `npm run verify:ci-health` | CI | Tools available | |
 | Repo State | `npm run verify:repo-state` | Pre-commit | Clean state | |
 | Footprint | `npm run perf:footprint` | Optional | Report generated | |
@@ -43,6 +48,11 @@ This matrix defines all automated and manual verification gates required for any
 - [x] No secret leakage staged
 - [x] No forbidden TODO/FIXME in critical paths
 - [x] No hard-crash patterns detected
+- [x] Hardware verification passed
+- [x] Offline sync verification passed
+- [x] Plugin security verification passed
+- [x] SDK degraded-state verification passed
+- [x] Marketplace rollback verification passed
 
 ## Optional/Advisory Gates
 

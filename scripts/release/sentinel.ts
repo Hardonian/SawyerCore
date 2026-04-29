@@ -44,15 +44,19 @@ interface SentinelReport {
 }
 
 // Helpers
-function runCommand(cmd: string, cwd?: string): { success: boolean; output: string; error: string } {
+function runCommand(cmd: string, timeoutMs: number = 120000, cwd?: string): { success: boolean; output: string; error: string } {
   try {
     const output = execSync(cmd, {
       encoding: 'utf-8',
       cwd: cwd || process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs
     });
     return { success: true, output: output.trim(), error: '' };
   } catch (err: any) {
+    if (err.status === undefined && err.signal === undefined) {
+      return { success: false, output: '', error: `Command timed out after ${timeoutMs}ms: ${cmd}` };
+    }
     return { success: false, output: err.stdout?.trim() || '', error: err.stderr?.trim() || err.message };
   }
 }

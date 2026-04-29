@@ -48,7 +48,13 @@ export class NodeRegistry {
   }
 
   getNodesWithCapability(capability: Capability): Node[] {
-    return this.getAllNodes().filter(n => n.capabilities.includes(capability));
+    const results: Node[] = [];
+    for (const n of this.nodes.values()) {
+      if (n.capabilities.includes(capability)) {
+        results.push(n);
+      }
+    }
+    return results;
   }
 
   updateStatus(nodeId: string, status: NodeStatus): void {

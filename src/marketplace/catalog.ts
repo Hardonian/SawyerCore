@@ -21,10 +21,13 @@ export class PluginCatalog {
 
   search(query: string): CatalogEntry[] {
     const q = query.toLowerCase();
-    return Array.from(this.entries.values()).filter(e => 
-      e.manifest.name.toLowerCase().includes(q) || 
-      e.manifest.description.toLowerCase().includes(q)
-    );
+    const results: CatalogEntry[] = [];
+    for (const e of this.entries.values()) {
+      if (e.manifest.name.toLowerCase().includes(q) || e.manifest.description.toLowerCase().includes(q)) {
+        results.push(e);
+      }
+    }
+    return results;
   }
 
   list(): CatalogEntry[] {
