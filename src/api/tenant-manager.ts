@@ -3,10 +3,15 @@ import { ApiKey, Tenant, AgentConfig, Referral, ShareableOutput } from './types.
 
 const tenants = new Map<string, Tenant>();
 const apiKeys = new Map<string, ApiKey>();
+const apiKeyToId = new Map<string, string>();
 const tenantByApiKey = new Map<string, string>();
 const agentConfigs = new Map<string, AgentConfig>();
 const referrals = new Map<string, Referral>();
 const shareableOutputs = new Map<string, ShareableOutput>();
+
+// Per-tenant indexes for performance
+const tenantApiKeys = new Map<string, Set<string>>();
+const tenantAgentConfigs = new Map<string, Set<string>>();
 
 export class TenantManager {
   private static instance: TenantManager;
@@ -72,26 +77,28 @@ export class TenantManager {
     };
 
     apiKeys.set(apiKey.id, apiKey);
+    apiKeyToId.set(key, apiKey.id);
     tenantByApiKey.set(key, tenantId);
+    
+    if (!tenantApiKeys.has(tenantId)) tenantApiKeys.set(tenantId, new Set());
+    tenantApiKeys.get(tenantId)!.add(apiKey.id);
 
     return { key, apiKey };
   }
 
   async validateApiKey(key: string): Promise<ApiKey | null> {
-    const tenantId = tenantByApiKey.get(key);
-    if (!tenantId) return null;
+    const apiKeyId = apiKeyToId.get(key);
+    if (!apiKeyId) return null;
 
-    for (const apiKey of apiKeys.values()) {
-      if (apiKey.key === key && apiKey.tenantId === tenantId) {
-        if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
-          return null;
-        }
-        apiKey.lastUsedAt = new Date();
-        apiKeys.set(apiKey.id, apiKey);
-        return apiKey;
-      }
+    const apiKey = apiKeys.get(apiKeyId);
+    if (!apiKey) return null;
+
+    if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
+      return null;
     }
-    return null;
+    
+    apiKey.lastUsedAt = new Date();
+    return apiKey;
   }
 
   async getTenantByApiKey(key: string): Promise<string | null> {
@@ -101,13 +108,17 @@ export class TenantManager {
   async revokeApiKey(apiKeyId: string): Promise<void> {
     const apiKey = apiKeys.get(apiKeyId);
     if (apiKey) {
+      apiKeyToId.delete(apiKey.key);
       tenantByApiKey.delete(apiKey.key);
+      tenantApiKeys.get(apiKey.tenantId)?.delete(apiKeyId);
       apiKeys.delete(apiKeyId);
     }
   }
 
   async listApiKeys(tenantId: string): Promise<ApiKey[]> {
-    return Array.from(apiKeys.values()).filter(k => k.tenantId === tenantId);
+    const ids = tenantApiKeys.get(tenantId);
+    if (!ids) return [];
+    return Array.from(ids).map(id => apiKeys.get(id)!).filter(Boolean);
   }
 
   async createAgentConfig(config: Omit<AgentConfig, 'id'>): Promise<AgentConfig> {
@@ -116,6 +127,10 @@ export class TenantManager {
       id: randomUUID()
     };
     agentConfigs.set(agentConfig.id, agentConfig);
+    
+    if (!tenantAgentConfigs.has(config.tenantId)) tenantAgentConfigs.set(config.tenantId, new Set());
+    tenantAgentConfigs.get(config.tenantId)!.add(agentConfig.id);
+
     return agentConfig;
   }
 
@@ -124,7 +139,9 @@ export class TenantManager {
   }
 
   async listAgentConfigs(tenantId: string): Promise<AgentConfig[]> {
-    return Array.from(agentConfigs.values()).filter(a => a.tenantId === tenantId);
+    const ids = tenantAgentConfigs.get(tenantId);
+    if (!ids) return [];
+    return Array.from(ids).map(id => agentConfigs.get(id)!).filter(Boolean);
   }
 
   async updateAgentConfig(id: string, updates: Partial<AgentConfig>): Promise<AgentConfig | null> {
@@ -136,6 +153,10 @@ export class TenantManager {
   }
 
   async deleteAgentConfig(id: string): Promise<boolean> {
+    const config = agentConfigs.get(id);
+    if (config) {
+      tenantAgentConfigs.get(config.tenantId)?.delete(id);
+    }
     return agentConfigs.delete(id);
   }
 
@@ -225,17 +246,28 @@ export class TenantManager {
 
   async clearTenantData(tenantId: string): Promise<void> {
     tenants.delete(tenantId);
-    for (const [key, apiKey] of apiKeys.entries()) {
-      if (apiKey.tenantId === tenantId) {
-        apiKeys.delete(key);
-        tenantByApiKey.delete(apiKey.key);
+    
+    const keyIds = tenantApiKeys.get(tenantId);
+    if (keyIds) {
+      for (const id of keyIds) {
+        const apiKey = apiKeys.get(id);
+        if (apiKey) {
+          apiKeyToId.delete(apiKey.key);
+          tenantByApiKey.delete(apiKey.key);
+          apiKeys.delete(id);
+        }
       }
+      tenantApiKeys.delete(tenantId);
     }
-    for (const [key, config] of agentConfigs.entries()) {
-      if (config.tenantId === tenantId) {
-        agentConfigs.delete(key);
+
+    const agentIds = tenantAgentConfigs.get(tenantId);
+    if (agentIds) {
+      for (const id of agentIds) {
+        agentConfigs.delete(id);
       }
+      tenantAgentConfigs.delete(tenantId);
     }
+
     for (const [key, referral] of referrals.entries()) {
       if (referral.referrerTenantId === tenantId) {
         referrals.delete(key);
