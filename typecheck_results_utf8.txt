@@ -1,0 +1,53 @@
+
+> sawyercore@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+src/api/index.ts(1,31): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './tenant-manager.js'?
+src/api/index.ts(2,33): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './router.js'?
+src/api/index.ts(3,65): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './runtime.js'?
+src/api/index.ts(13,8): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './types.js'?
+src/api/index.ts(23,8): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './types.js'?
+src/api/router.ts(2,31): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './tenant-manager.js'?
+src/api/router.ts(3,65): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './runtime.js'?
+src/api/router.ts(4,35): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../billing/controller.js'?
+src/api/router.ts(5,30): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../billing/usage-tracker.js'?
+src/api/router.ts(6,32): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../billing/pricing.js'?
+src/api/router.ts(7,33): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './types.js'?
+src/api/router.ts(18,11): error TS7006: Parameter 'apiKeyData' implicitly has an 'any' type.
+src/api/router.ts(25,18): error TS7006: Parameter 'quotaResult' implicitly has an 'any' type.
+src/api/router.ts(35,12): error TS7006: Parameter 'err' implicitly has an 'any' type.
+src/api/router.ts(138,25): error TS7006: Parameter 'k' implicitly has an 'any' type.
+src/api/runtime.ts(1,37): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../runtime/core/deterministic-engine.js'?
+src/api/runtime.ts(2,30): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../runtime/router.js'?
+src/api/runtime.ts(3,34): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../runtime/safety/safety-controller.js'?
+src/api/runtime.ts(4,43): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../providers/providers.js'?
+src/api/runtime.ts(5,28): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../runtime/config-loader.js'?
+src/api/runtime.ts(6,34): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../types/contracts.js'?
+src/billing/router.ts(2,35): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './controller.js'?
+src/billing/router.ts(3,160): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './stripe.js'?
+src/billing/router.ts(4,30): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './usage-tracker.js'?
+src/billing/router.ts(5,32): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './pricing.js'?
+src/billing/router.ts(6,66): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './types.js'?
+src/billing/stripe.ts(1,20): error TS2307: Cannot find module 'stripe' or its corresponding type declarations.
+src/tenancy/index.ts(1,43): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './controller.js'?
+src/tenancy/index.ts(2,77): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './middleware.js'?
+src/tenancy/index.ts(7,8): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './types.js'?
+src/tenancy/index.ts(12,8): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './types.js'?
+src/tenancy/middleware.ts(2,43): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './controller.js'?
+src/tenancy/middleware.ts(3,31): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../api/tenant-manager.js'?
+src/tenancy/middleware.ts(4,35): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../billing/controller.js'?
+src/tenancy/middleware.ts(27,18): error TS7006: Parameter 'apiKeyData' implicitly has an 'any' type.
+src/tenancy/middleware.ts(84,13): error TS7006: Parameter 'error' implicitly has an 'any' type.
+tests/runtime/providers.test.ts(26,19): error TS2339: Property 'models' does not exist on type '{ healthy: boolean; reason?: string | undefined; }'.
+tests/runtime/providers.test.ts(30,84): error TS2353: Object literal may only specify known properties, and 'enabled' does not exist in type 'Omit<OpenAiCompatibleProviderOpts, keyof ProviderOpts> & Partial<ProviderOpts>'.
+tests/runtime/router.test.ts(34,42): error TS2304: Cannot find name 'CloudFallbackProvider'.
+tests/runtime/router.test.ts(38,7): error TS2304: Cannot find name 'defaultSignals'.
+tests/runtime/router.test.ts(47,93): error TS2552: Cannot find name 'audit'. Did you mean 'Audio'?
+tests/runtime/router.test.ts(48,36): error TS2304: Cannot find name 'task'.
+tests/runtime/router.test.ts(62,12): error TS2552: Cannot find name 'audit'. Did you mean 'Audio'?
+tests/runtime/router.test.ts(63,12): error TS2552: Cannot find name 'audit'. Did you mean 'Audio'?
+tests/runtime/router.test.ts(70,36): error TS2304: Cannot find name 'task'.
+tests/saas/billing.test.ts(2,35): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../../src/billing/controller.js'?
+tests/saas/billing.test.ts(3,30): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../../src/billing/usage-tracker.js'?
+tests/saas/billing.test.ts(4,32): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../../src/billing/pricing.js'?
+tests/saas/growth.test.ts(2,30): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../../src/growth/engine.js'?
