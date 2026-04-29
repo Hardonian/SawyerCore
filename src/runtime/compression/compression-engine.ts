@@ -261,13 +261,21 @@ export class CompressionEngine {
   }
 
   private applyBudget(prompt: string, tokenBudget: number | undefined): string {
-    if (!tokenBudget || estimateTokens(prompt) <= tokenBudget) return prompt;
+    if (!tokenBudget) return prompt;
+    const currentEstimate = estimateTokens(prompt);
+    if (currentEstimate <= tokenBudget) return prompt;
+
     const lines = prompt.split('\n');
     const retained: string[] = [];
+    let runningEstimate = 0;
+    const separatorEstimate = estimateTokens('\n');
+
     for (const line of lines) {
-      const candidate = [...retained, line].join('\n');
-      if (estimateTokens(candidate) > tokenBudget) break;
+      const lineEstimate = estimateTokens(line);
+      const totalIfAdded = runningEstimate + (retained.length > 0 ? separatorEstimate : 0) + lineEstimate;
+      if (totalIfAdded > tokenBudget) break;
       retained.push(line);
+      runningEstimate = totalIfAdded;
     }
     return retained.join('\n').trim();
   }
@@ -290,10 +298,29 @@ export class CompressionEngine {
   }
 }
 
+const TOKEN_CACHE = new Map<string, number>();
+const MAX_CACHE_SIZE = 1000;
+
 export function estimateTokens(input: string): number {
+  if (input.length === 0) return 0;
+  if (input.length < 512) {
+    const cached = TOKEN_CACHE.get(input);
+    if (cached !== undefined) return cached;
+  }
+
   const words = input.match(WORD_PATTERN)?.length ?? 0;
   const punctuation = input.match(/[^\s\w]/g)?.length ?? 0;
-  return Math.max(1, Math.ceil(words * 1.25 + punctuation * 0.25));
+  const estimate = Math.max(1, Math.ceil(words * 1.25 + punctuation * 0.25));
+
+  if (input.length < 512) {
+    if (TOKEN_CACHE.size >= MAX_CACHE_SIZE) {
+      const firstKey = TOKEN_CACHE.keys().next().value;
+      if (firstKey !== undefined) TOKEN_CACHE.delete(firstKey);
+    }
+    TOKEN_CACHE.set(input, estimate);
+  }
+
+  return estimate;
 }
 
 export function semanticFingerprint(input: string): string {
