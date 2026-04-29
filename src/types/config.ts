@@ -34,6 +34,7 @@ export interface GovernancePolicy {
   allowModelList: string[];
   maxCostPerRequestUsd: number;
   maxTokens: number;
+  maxRequestBytes: number;
   fallbackAllowed: boolean;
   dataRetention: 'none' | 'transient' | 'standard';
   tenantPermissions: Record<string, { cloudAllowed: boolean; privateDataCloudAllowed: boolean }>;

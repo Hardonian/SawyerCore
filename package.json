@@ -16,6 +16,9 @@
     "sawyer:init": "tsx src/cli/sawyer-init.ts",
     "sawyer:doctor": "tsx src/cli/sawyer-doctor.ts",
     "verify:rust": "bash ./scripts/verify-rust-only.sh",
+    "verify:determinism": "vitest run tests/runtime/determinism.test.ts",
+    "verify:low-resource": "vitest run tests/runtime/safety.test.ts --reporter=verbose",
+    "verify:degraded-modes": "vitest run tests/runtime/safety.test.ts tests/runtime/memory.test.ts --reporter=verbose",
     "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json"
   },
   "engines": {
