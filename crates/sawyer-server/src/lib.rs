@@ -623,8 +623,8 @@ struct BillingUsageResponse {
     agent_runs_this_period: u64,
     api_calls_this_period: u64,
     total_cost_usd: f64,
-    period_start: String,
-    period_end: String,
+    period_start: u64,
+    period_end: u64,
 }
 
 #[derive(Deserialize)]
