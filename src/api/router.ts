@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { TenantManager } from './tenant-manager.js';
 import { runTask, getEngineStatus, getAvailableProviders } from './runtime.js';
 import { BillingController } from '../billing/controller.js';
-import { TaskInputSchema } from './types.js';
+import { TaskInputSchema, AuthenticatedRequest } from './types.js';
 
 function tenantGuard(req: Request, res: Response, next: NextFunction) {
   const apiKey = req.headers['x-api-key'] as string;

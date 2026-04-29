@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Request } from 'express';
 
 export const ApiKeySchema = z.object({
   id: z.string().uuid(),
@@ -13,6 +14,11 @@ export const ApiKeySchema = z.object({
 });
 
 export type ApiKey = z.infer<typeof ApiKeySchema>;
+ 
+ export interface AuthenticatedRequest extends Request {
+   tenantId: string;
+   apiKey: ApiKey;
+ }
 
 export const ApiRequestSchema = z.object({
   id: z.string().uuid(),
