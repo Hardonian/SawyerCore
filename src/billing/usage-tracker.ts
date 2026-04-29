@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { UsageRecord, UsageEventType, TenantResourceLimits, BillingPeriod } from './types';
+import { UsageRecord, UsageEventType, TenantResourceLimits, BillingPeriod } from './types.js';
 
 const usageStore = new Map<string, UsageRecord[]>();
 const resourceLimits = new Map<string, TenantResourceLimits>();

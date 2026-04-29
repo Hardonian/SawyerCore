@@ -1,4 +1,4 @@
-import { PricingTier } from './types';
+import { PricingTier } from './types.js';
 
 const pricingTiers = new Map<string, PricingTier>();
 

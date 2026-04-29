@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TenantManager } from '../../src/api/tenant-manager';
-import { TenantIsolationController } from '../../src/tenancy/controller';
-import { PricingCatalog } from '../../src/billing/pricing';
+import { TenantManager } from '../../src/api/tenant-manager.js';
+import { TenantIsolationController } from '../../src/tenancy/controller.js';
+import { PricingCatalog } from '../../src/billing/pricing.js';
 
 describe('Tenant Isolation', () => {
   let tenantManager: TenantManager;

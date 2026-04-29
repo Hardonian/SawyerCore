@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { OnboardingFlow } from '../../src/saas/onboarding';
-import { TenantManager } from '../../src/api/tenant-manager';
-import { PricingCatalog } from '../../src/billing/pricing';
+import { OnboardingFlow } from '../../src/saas/onboarding.js';
+import { TenantManager } from '../../src/api/tenant-manager.js';
+import { PricingCatalog } from '../../src/billing/pricing.js';
 
 describe('Onboarding Flow', () => {
   let onboarding: OnboardingFlow;

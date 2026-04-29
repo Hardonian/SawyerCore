@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { TenantContext, RateLimitConfig } from './types';
+import { TenantContext, RateLimitConfig } from './types.js';
 
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 

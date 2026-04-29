@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { ApiKey, Tenant, AgentConfig, Referral, ShareableOutput } from './types';
+import { ApiKey, Tenant, AgentConfig, Referral, ShareableOutput } from './types.js';
 
 const tenants = new Map<string, Tenant>();
 const apiKeys = new Map<string, ApiKey>();
@@ -224,7 +224,7 @@ export class TenantManager {
       }
     }
     for (const [key, referral] of referrals.entries()) {
-      if (referrer.referrerTenantId === tenantId) {
+      if (referral.referrerTenantId === tenantId) {
         referrals.delete(key);
       }
     }

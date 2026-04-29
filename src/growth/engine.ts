@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { LandingPage, ABTest, Campaign, ViralLoop } from './types';
+import { LandingPage, ABTest, Campaign, ViralLoop } from './types.js';
 
 const landingPages = new Map<string, LandingPage>();
 const abTests = new Map<string, ABTest>();
