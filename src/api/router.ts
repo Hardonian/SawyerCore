@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { TenantManager } from './tenant-manager.js';
 import { runTask, getEngineStatus, getAvailableProviders } from './runtime.js';
 import { BillingController } from '../billing/controller.js';
-import { TaskInputSchema, AuthenticatedRequest } from './types.js';
+import { TaskInputSchema, AuthenticatedRequest, ApiKey } from './types.js';
 
 function tenantGuard(req: Request, res: Response, next: NextFunction) {
   const apiKey = req.headers['x-api-key'] as string;
@@ -101,7 +101,8 @@ export function createApiRouter(): Router {
 
   router.post('/api-keys', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const { name, scopes, expiresAt } = req.body;
       if (!name || !scopes) {
         res.status(400).json({ error: 'name and scopes required' });
@@ -121,9 +122,10 @@ export function createApiRouter(): Router {
 
   router.get('/api-keys', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const keys = await tenantManager.listApiKeys(tenantId);
-      res.json(keys.map((k: any) => ({ ...k, key: '***' })));
+      res.json(keys.map((k: ApiKey) => ({ ...k, key: '***' })));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -140,7 +142,8 @@ export function createApiRouter(): Router {
 
   router.post('/agents', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const config = await tenantManager.createAgentConfig({
         ...req.body,
         tenantId
@@ -153,7 +156,8 @@ export function createApiRouter(): Router {
 
   router.get('/agents', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const configs = await tenantManager.listAgentConfigs(tenantId);
       res.json(configs);
     } catch (error) {
@@ -202,7 +206,8 @@ export function createApiRouter(): Router {
 
   router.post('/share', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const { runId, title, content, expiresAt, password } = req.body;
       const output = await tenantManager.createShareableOutput({
         tenantId,
@@ -242,7 +247,8 @@ export function createApiRouter(): Router {
 
   router.get('/my-shares', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const outputs = await tenantManager.getShareableOutputs(tenantId);
       res.json(outputs);
     } catch (error) {
@@ -252,7 +258,8 @@ export function createApiRouter(): Router {
 
   router.post('/referrals', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const { email } = req.body;
       if (!email) {
         res.status(400).json({ error: 'email required' });
@@ -267,7 +274,8 @@ export function createApiRouter(): Router {
 
   router.get('/referrals', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const referrals = await tenantManager.getReferrals(tenantId);
       res.json(referrals);
     } catch (error) {

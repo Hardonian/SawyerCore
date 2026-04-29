@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { Request } from 'express';
+
 
 export const TenantContextSchema = z.object({
   tenantId: z.string(),
@@ -15,6 +17,12 @@ export const TenantContextSchema = z.object({
 });
 
 export type TenantContext = z.infer<typeof TenantContextSchema>;
+ 
+ export interface AuthenticatedTenantRequest extends Request {
+   tenantContext: TenantContext;
+   tenantId: string;
+ }
+
 
 export const TenantIsolationError = z.object({
   type: z.enum([

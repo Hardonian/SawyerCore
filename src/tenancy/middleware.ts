@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { TenantIsolationController } from './controller.js';
 import { TenantManager } from '../api/tenant-manager.js';
 import { BillingController } from '../billing/controller.js';
+import { AuthenticatedTenantRequest } from './types.js';
 
 export function tenantMiddleware(
   req: Request,
@@ -32,7 +33,7 @@ export function tenantMiddleware(
         });
         return;
       }
-
+ 
       if (apiKeyData.expiresAt && apiKeyData.expiresAt < new Date()) {
         res.status(401).json({
           error: 'API key expired',
@@ -40,7 +41,7 @@ export function tenantMiddleware(
         });
         return;
       }
-
+ 
       const quota = await billingController.checkTenantQuota(apiKeyData.tenantId);
       if (!quota.canExecute) {
         res.status(429).json({
@@ -51,7 +52,7 @@ export function tenantMiddleware(
         });
         return;
       }
-
+ 
       const tenant = await tenantManager.getTenant(apiKeyData.tenantId);
       if (!tenant) {
         res.status(404).json({
@@ -60,7 +61,7 @@ export function tenantMiddleware(
         });
         return;
       }
-
+ 
       if (tenant.status === 'suspended') {
         res.status(403).json({
           error: 'Tenant suspended',
@@ -68,20 +69,21 @@ export function tenantMiddleware(
         });
         return;
       }
-
+ 
       const context = await isolationController.createContext(
         tenant.id,
         apiKey,
         apiKeyData.scopes,
         tenant.resourceLimits
       );
-
-      (req as any).tenantContext = context;
-      (req as any).tenantId = context.tenantId;
-
+ 
+      const authReq = req as AuthenticatedTenantRequest;
+      authReq.tenantContext = context;
+      authReq.tenantId = context.tenantId;
+ 
       next();
     })
-    .catch((error) => {
+    .catch((error: Error) => {
       res.status(500).json({
         error: 'Internal server error',
         code: 'INTERNAL_ERROR',
@@ -92,7 +94,8 @@ export function tenantMiddleware(
 
 export function scopeMiddleware(requiredScopes: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const context = (req as any).tenantContext;
+    const authReq = req as AuthenticatedTenantRequest;
+    const context = authReq.tenantContext;
     
     if (!context) {
       res.status(401).json({
