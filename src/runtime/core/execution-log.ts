@@ -58,6 +58,10 @@ export class ExecutionLog {
     return this.entries.find((e) => e.runId === runId);
   }
 
+  getLatest(): ExecutionLogEntry | undefined {
+    return this.entries[this.entries.length - 1];
+  }
+
   replay(): ExecutionLogEntry[] {
     if (!existsSync(this.config.filePath)) {
       return [];

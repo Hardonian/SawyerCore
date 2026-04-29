@@ -33,8 +33,14 @@ export class SawyerRouter {
   ): Promise<{ decision: RoutingDecision; result?: InferenceResult; reasons: string[]; degraded?: boolean }> {
     const denied: Array<{ provider: string; reason: string }> = [];
     const scored: Array<{ provider: RuntimeProvider; score: number; breakdown: Record<string, number> }> = [];
+    const blockedProviderNames = new Set(signals.blockedProviderNames ?? []);
 
     for (const provider of this.providers) {
+      if (blockedProviderNames.has(provider.name)) {
+        denied.push({ provider: provider.name, reason: 'blocked by execution graph preference' });
+        continue;
+      }
+
       const health = await provider.healthCheck();
       if (!health.healthy) {
         denied.push({ provider: provider.name, reason: health.reason ?? 'unhealthy' });

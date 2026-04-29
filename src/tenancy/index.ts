@@ -1,12 +1,12 @@
-export { TenantIsolationController } from './controller';
-export { tenantMiddleware, scopeMiddleware, enforceResourceIsolation } from './middleware';
+export { TenantIsolationController } from './controller.js';
+export { tenantMiddleware, scopeMiddleware, enforceResourceIsolation } from './middleware.js';
 export {
   TenantContextSchema,
   TenantIsolationError,
   RateLimitConfigSchema
-} from './types';
+} from './types.js';
 export type {
   TenantContext,
   TenantIsolationError as TenantIsolationErrorType,
   RateLimitConfig
-} from './types';
+} from './types.js';

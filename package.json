@@ -25,10 +25,14 @@
     "node": ">=20"
   },
   "dependencies": {
+    "express": "^5.2.1",
+    "stripe": "^22.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^22.15.29",
+    "@types/stripe": "^8.0.416",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
     "@typescript-eslint/parser": "^8.32.0",
     "eslint": "^9.26.0",

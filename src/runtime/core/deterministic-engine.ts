@@ -141,4 +141,12 @@ export class DeterministicEngine {
   static hashInput(input: string): string {
     return computeInputHash(input);
   }
+
+  getProviderNames(): string[] {
+    return [...this.providerNames];
+  }
+
+  getDegradedState(): DegradedStateCode {
+    return this.executionLog.getLatest()?.degradedState ?? 'NOMINAL';
+  }
 }

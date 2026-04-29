@@ -1,6 +1,6 @@
-export { TenantManager } from './tenant-manager';
-export { createApiRouter } from './router';
-export { runTask, getEngineStatus, getAvailableProviders } from './runtime';
+export { TenantManager } from './tenant-manager.js';
+export { createApiRouter } from './router.js';
+export { runTask, getEngineStatus, getAvailableProviders } from './runtime.js';
 export {
   ApiKeySchema,
   ApiRequestSchema,
@@ -10,7 +10,7 @@ export {
   ReferralSchema,
   ShareableOutputSchema,
   TenantSchema
-} from './types';
+} from './types.js';
 export type {
   ApiKey,
   ApiRequest,
@@ -20,4 +20,4 @@ export type {
   Referral,
   ShareableOutput,
   Tenant
-} from './types';
+} from './types.js';

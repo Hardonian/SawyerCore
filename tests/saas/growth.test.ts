@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GrowthEngine } from '../../src/growth/engine';
+import { GrowthEngine } from '../../src/growth/engine.js';
 
 describe('Growth Engine', () => {
   let growth: GrowthEngine;

@@ -1,9 +1,9 @@
-import { Router } from 'express';
-import { BillingController } from './controller';
-import { createCustomer, createSubscription, cancelSubscription, updateSubscription, generatePaymentLink, initStripe, reportUsageToMeter, createInvoice } from './stripe';
-import { UsageTracker } from './usage-tracker';
-import { PricingCatalog } from './pricing';
-import { StripeCustomerSchema, TenantResourceLimitsSchema } from './types';
+import { Request, Response, Router } from 'express';
+import { BillingController } from './controller.js';
+import { createCustomer, createSubscription, cancelSubscription, updateSubscription, generatePaymentLink, initStripe, reportUsageToMeter, createInvoice } from './stripe.js';
+import { UsageTracker } from './usage-tracker.js';
+import { PricingCatalog } from './pricing.js';
+import { TenantResourceLimitsSchema } from './types.js';
 
 export function createBillingRouter(): Router {
   const router = Router();
@@ -159,10 +159,8 @@ export function createBillingRouter(): Router {
     }
   });
 
-  router.post('/webhook', (req, res) => {
-    const sig = req.headers['stripe-signature'] as string;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
+  router.post('/webhook', (_req, res) => {
+    // Webhook implementation pending
     res.json({ received: true });
   });
 

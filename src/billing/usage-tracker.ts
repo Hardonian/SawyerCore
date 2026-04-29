@@ -110,4 +110,10 @@ export class UsageTracker {
     resourceLimits.delete(tenantId);
     billingPeriods.delete(tenantId);
   }
+
+  static clearAll(): void {
+    usageStore.clear();
+    resourceLimits.clear();
+    billingPeriods.clear();
+  }
 }

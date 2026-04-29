@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { TenantIsolationController } from './controller';
-import { TenantManager } from '../api/tenant-manager';
-import { BillingController } from '../billing/controller';
+import { TenantIsolationController } from './controller.js';
+import { TenantManager } from '../api/tenant-manager.js';
+import { BillingController } from '../billing/controller.js';
 
 export function tenantMiddleware(
   req: Request,

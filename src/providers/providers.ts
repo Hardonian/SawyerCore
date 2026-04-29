@@ -97,7 +97,7 @@ class OpenAiCompatibleProvider extends StubProvider {
     private readonly fetchImpl: typeof fetch = fetch
   ) {
     super(opts);
-    this.endpoint = opts.endpoint.replace(/\/$/, '');
+    this.endpoint = opts.endpoint?.replace(/\/$/, '') ?? '';
     this.timeoutMs = opts.timeoutMs;
     this.retries = opts.retries;
     this.model = opts.model;

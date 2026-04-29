@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BillingController } from '../../src/billing/controller';
-import { UsageTracker } from '../../src/billing/usage-tracker';
-import { PricingCatalog } from '../../src/billing/pricing';
+import { BillingController } from '../../src/billing/controller.js';
+import { UsageTracker } from '../../src/billing/usage-tracker.js';
+import { PricingCatalog } from '../../src/billing/pricing.js';
 
 describe('Billing System', () => {
   let billing: BillingController;
-  let usageTracker: UsageTracker;
 
   beforeEach(() => {
+    UsageTracker.clearAll();
     billing = new BillingController();
-    usageTracker = UsageTracker.getInstance();
     PricingCatalog.assignTier('test-tenant', 'starter');
     PricingCatalog.assignTier('test-tenant-2', 'pro');
   });

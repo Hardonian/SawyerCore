@@ -1,12 +1,10 @@
-import { Router } from 'express';
-import { TenantManager } from './tenant-manager';
-import { runTask, getEngineStatus, getAvailableProviders } from './runtime';
-import { BillingController } from '../billing/controller';
-import { UsageTracker } from '../billing/usage-tracker';
-import { PricingCatalog } from '../billing/pricing';
-import { TaskInputSchema } from './types';
+import { Router, Request, Response, NextFunction } from 'express';
+import { TenantManager } from './tenant-manager.js';
+import { runTask, getEngineStatus, getAvailableProviders } from './runtime.js';
+import { BillingController } from '../billing/controller.js';
+import { TaskInputSchema } from './types.js';
 
-function tenantGuard(req: any, res: any, next: any) {
+function tenantGuard(req: Request, res: Response, next: NextFunction) {
   const apiKey = req.headers['x-api-key'] as string;
   if (!apiKey) {
     res.status(401).json({ error: 'API key required' });
@@ -32,7 +30,7 @@ function tenantGuard(req: any, res: any, next: any) {
         next();
       });
     })
-    .catch(err => {
+    .catch((err: any) => {
       res.status(500).json({ error: err.message });
     });
 }
@@ -135,7 +133,7 @@ export function createApiRouter(): Router {
     try {
       const tenantId = (req as any).tenantId;
       const keys = await tenantManager.listApiKeys(tenantId);
-      res.json(keys.map(k => ({ ...k, key: '***' })));
+      res.json(keys.map((k: any) => ({ ...k, key: '***' })));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -143,7 +141,7 @@ export function createApiRouter(): Router {
 
   router.delete('/api-keys/:id', tenantGuard, async (req, res) => {
     try {
-      await tenantManager.revokeApiKey(req.params.id);
+      await tenantManager.revokeApiKey(req.params.id as string);
       res.json({ revoked: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -175,7 +173,7 @@ export function createApiRouter(): Router {
 
   router.get('/agents/:id', tenantGuard, async (req, res) => {
     try {
-      const config = await tenantManager.getAgentConfig(req.params.id);
+      const config = await tenantManager.getAgentConfig(req.params.id as string);
       if (!config) {
         res.status(404).json({ error: 'Agent config not found' });
         return;
@@ -188,7 +186,7 @@ export function createApiRouter(): Router {
 
   router.patch('/agents/:id', tenantGuard, async (req, res) => {
     try {
-      const config = await tenantManager.updateAgentConfig(req.params.id, req.body);
+      const config = await tenantManager.updateAgentConfig(req.params.id as string, req.body);
       if (!config) {
         res.status(404).json({ error: 'Agent config not found' });
         return;
@@ -201,7 +199,7 @@ export function createApiRouter(): Router {
 
   router.delete('/agents/:id', tenantGuard, async (req, res) => {
     try {
-      const deleted = await tenantManager.deleteAgentConfig(req.params.id);
+      const deleted = await tenantManager.deleteAgentConfig(req.params.id as string);
       if (!deleted) {
         res.status(404).json({ error: 'Agent config not found' });
         return;
@@ -232,7 +230,7 @@ export function createApiRouter(): Router {
 
   router.get('/share/:id', async (req, res) => {
     try {
-      const output = await tenantManager.getShareableOutput(req.params.id);
+      const output = await tenantManager.getShareableOutput(req.params.id as string);
       if (!output) {
         res.status(404).json({ error: 'Shareable output not found or expired' });
         return;
