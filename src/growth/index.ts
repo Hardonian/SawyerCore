@@ -1,14 +1,14 @@
-export { GrowthEngine } from './engine';
-export { createGrowthRouter } from './router';
+export { GrowthEngine } from './engine.js';
+export { createGrowthRouter } from './router.js';
 export {
   LandingPageSchema,
   ABTestSchema,
   CampaignSchema,
   ViralLoopSchema
-} from './types';
+} from './types.js';
 export type {
   LandingPage,
   ABTest,
   Campaign,
   ViralLoop
-} from './types';
+} from './types.js';

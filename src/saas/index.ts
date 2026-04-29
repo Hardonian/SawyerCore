@@ -1,2 +1,2 @@
-export { OnboardingFlow } from './onboarding';
-export type { OnboardingInput, OnboardingResult } from './onboarding';
+export { OnboardingFlow } from './onboarding.js';
+export type { OnboardingInput, OnboardingResult } from './onboarding.js';

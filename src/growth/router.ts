@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { GrowthEngine } from './engine';
+import { GrowthEngine } from './engine.js';
 
 export function createGrowthRouter(): Router {
   const router = Router();

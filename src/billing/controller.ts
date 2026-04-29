@@ -1,6 +1,6 @@
-import { UsageRecord } from './types';
-import { UsageTracker } from './usage-tracker';
-import { PricingCatalog } from './pricing';
+import { UsageRecord } from './types.js';
+import { UsageTracker } from './usage-tracker.js';
+import { PricingCatalog } from './pricing.js';
 
 export class BillingController {
   private usageTracker: UsageTracker;

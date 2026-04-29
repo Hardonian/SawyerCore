@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto';
-import { TenantManager } from '../api/tenant-manager';
-import { UsageTracker } from '../billing/usage-tracker';
-import { PricingCatalog } from '../billing/pricing';
-import { TenantIsolationController } from '../tenancy/controller';
-import { GrowthEngine } from '../growth/engine';
+import { TenantManager } from '../api/tenant-manager.js';
+import { UsageTracker } from '../billing/usage-tracker.js';
+import { PricingCatalog } from '../billing/pricing.js';
+import { TenantIsolationController } from '../tenancy/controller.js';
+import { GrowthEngine } from '../growth/engine.js';
 
 export interface OnboardingInput {
   name: string;
@@ -104,14 +104,14 @@ export class OnboardingFlow {
   }
 
   async getOnboardingStatus(tenantId: string): Promise<{
-    tenant: ReturnType<typeof this.tenantManager.getTenant>;
-    usage: ReturnType<typeof this.usageTracker.getCurrentPeriodUsage>;
-    quota: ReturnType<import('../billing/controller').BillingController['checkTenantQuota']>;
+    tenant: Awaited<ReturnType<TenantManager['getTenant']>>;
+    usage: Awaited<ReturnType<UsageTracker['getCurrentPeriodUsage']>>;
+    quota: Awaited<ReturnType<import('../billing/controller.js').BillingController['checkTenantQuota']>>;
   } | null> {
     const tenant = await this.tenantManager.getTenant(tenantId);
     if (!tenant) return null;
 
-    const billing = new (await import('../billing/controller')).BillingController();
+    const billing = new (await import('../billing/controller.js')).BillingController();
     const usage = await this.usageTracker.getCurrentPeriodUsage(tenantId);
     const quota = await billing.checkTenantQuota(tenantId);
 
