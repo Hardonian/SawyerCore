@@ -16,4 +16,5 @@ SawyerCore is designed to remain functional even in network-isolated environment
 - `DEGRADED`: Intermittent connectivity; sync in progress.
 
 ## Sync Conflict Detection
+
 The system uses hash-based state verification to detect if the remote state has drifted during the offline period. Conflicts are logged for manual or rule-based reconciliation.
