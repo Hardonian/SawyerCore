@@ -19,7 +19,7 @@
  * Recommendations only. Does NOT auto-modify.
  */
 
-import { readFileSync, readdirSync, statSync, existsSync, writeFileSync } from 'fs';
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync as _mkdirSync } from 'fs';
 import { join, relative, resolve } from 'path';
 
 // const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -358,7 +358,7 @@ async function main() {
   };
 
   const artifactsDir = join(process.cwd(), 'artifacts', 'perf');
-  require('fs').mkdirSync(artifactsDir, { recursive: true });
+  _mkdirSync(artifactsDir, { recursive: true });
 
   const jsonPath = join(artifactsDir, 'footprint-report.json');
   writeFileSync(jsonPath, JSON.stringify(report, null, 2));
