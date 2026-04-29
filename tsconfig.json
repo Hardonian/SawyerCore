@@ -9,7 +9,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo"
   },
   "include": ["src", "tests", "profiles", "config"]
 }
