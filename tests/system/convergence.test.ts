@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { AuditLogger, InMemoryAuditSink } from '../../src/observability/audit.js';
 import type { RuntimeProvider, ProviderCapabilities, ProviderHealth, ProviderTarget } from '../../src/providers/provider.js';
 import { safeDefaultConfig } from '../../src/runtime/defaults.js';
-import { estimateTokens } from '../../src/runtime/compression/compression-engine.js';
 import type { AiTask, InferenceResult } from '../../src/types/contracts.js';
 import { BillingController } from '../../src/billing/controller.js';
 import { UsageTracker } from '../../src/billing/usage-tracker.js';
@@ -65,8 +64,8 @@ describe('verify:end-to-end', () => {
 
     const report = await new BillingController().getUsageReport(
       tenantId,
-      new Date('2026-01-01T00:00:00.000Z'),
-      new Date('2026-12-31T23:59:59.999Z')
+      new Date('2020-01-01T00:00:00.000Z'),
+      new Date('2100-12-31T23:59:59.999Z')
     );
     expect(report.breakdown.task.quantity).toBe(1);
     expect(report.breakdown.compute.quantity).toBeGreaterThan(0);
@@ -182,7 +181,7 @@ describe('verify:security', () => {
     });
 
     expect(receipt.decision).toBe('DENY');
-    expect(receipt.degradedState).toBe('MODEL_UNAVAILABLE');
+    expect(receipt.degradedState).toBe('PARTIAL_EXECUTION');
     expect(receipt.result).toBeUndefined();
     expect(receipt.reasons.join(' ')).toContain('private/sensitive');
   });

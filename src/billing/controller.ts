@@ -161,7 +161,7 @@ export class BillingController {
     };
 
     const canExecute = Object.entries(currentUsage).every(
-      ([key, value]) => !value.limit || value.current < value.limit
+      ([_key, value]) => !value.limit || value.current < value.limit
     );
 
     let reason: string | undefined;
