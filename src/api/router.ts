@@ -10,7 +10,7 @@ function tenantGuard(req: Request, res: Response, next: NextFunction) {
     res.status(401).json({ error: 'API key required' });
     return;
   }
-
+ 
   TenantManager.getInstance()
     .validateApiKey(apiKey)
     .then(apiKeyData => {
@@ -18,19 +18,20 @@ function tenantGuard(req: Request, res: Response, next: NextFunction) {
         res.status(401).json({ error: 'Invalid API key' });
         return;
       }
-
+ 
       const quota = new BillingController().checkTenantQuota(apiKeyData.tenantId);
       quota.then(quotaResult => {
         if (!quotaResult.canExecute) {
           res.status(429).json({ error: 'Quota exceeded', details: quotaResult.reason });
           return;
         }
-        (req as any).tenantId = apiKeyData.tenantId;
-        (req as any).apiKey = apiKeyData;
+        const authReq = req as AuthenticatedRequest;
+        authReq.tenantId = apiKeyData.tenantId;
+        authReq.apiKey = apiKeyData;
         next();
       });
     })
-    .catch((err: any) => {
+    .catch((err: Error) => {
       res.status(500).json({ error: err.message });
     });
 }
@@ -46,11 +47,12 @@ export function createApiRouter(): Router {
 
   router.post('/tasks', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const validated = TaskInputSchema.parse(req.body);
-
+ 
       const result = await runTask(tenantId, validated);
-
+ 
       res.json(result);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -77,7 +79,8 @@ export function createApiRouter(): Router {
 
   router.get('/me', tenantGuard, async (req, res) => {
     try {
-      const tenantId = (req as any).tenantId;
+      const authReq = req as AuthenticatedRequest;
+      const tenantId = authReq.tenantId;
       const tenant = await tenantManager.getTenant(tenantId);
       if (!tenant) {
         res.status(404).json({ error: 'Tenant not found' });
