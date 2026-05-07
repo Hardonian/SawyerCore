@@ -1,4 +1,11 @@
-.PHONY: fmt lint test build build-release build-repro bench verify release local-vllm local-litellm local-llamacpp local-stack smoke-local
+.PHONY: fmt lint test build build-release build-repro bench verify release local-vllm local-litellm local-llamacpp local-stack smoke-local clean
+
+clean:
+	cargo clean
+	rm -rf dist
+	rm -rf node_modules/.cache
+	rm -f typecheck_results*.txt
+	rm -f firebase-debug.log
 
 fmt:
 	cargo fmt --all

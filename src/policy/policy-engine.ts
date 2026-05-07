@@ -27,7 +27,7 @@ export class PolicyEngine {
       reasons.push('provider unhealthy');
     }
 
-    const tenantPerm = this.policy.tenantPermissions[ctx.tenantId];
+    const tenantPerm = this.policy.tenantPermissions[ctx.tenantId] ?? this.policy.tenantPermissions.default;
     if (!tenantPerm) reasons.push('missing tenant permission');
 
     if (this.policy.requireAudit === false) {

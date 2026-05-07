@@ -6,7 +6,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . --fix",
+    "verify:hardware": "tsx scripts/verify/hardware.ts",
+    "verify:offline": "tsx scripts/verify/offline.ts",
+    "verify:plugins": "tsx scripts/verify/plugins.ts",
+    "verify:sdk": "tsx scripts/verify/sdk.ts",
+    "verify:marketplace": "tsx scripts/verify/marketplace.ts",
+    "verify:ecosystem": "npm run verify:hardware && npm run verify:offline && npm run verify:plugins && npm run verify:sdk && npm run verify:marketplace",
     "test": "vitest run",
     "verify:ai": "vitest run tests/runtime/router.test.ts tests/runtime/providers.test.ts",
     "verify:policy": "vitest run tests/policy/policy-engine.test.ts",
@@ -16,16 +22,40 @@
     "sawyer:init": "tsx src/cli/sawyer-init.ts",
     "sawyer:doctor": "tsx src/cli/sawyer-doctor.ts",
     "verify:rust": "bash ./scripts/verify-rust-only.sh",
-    "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json"
+    "verify:determinism": "vitest run tests/runtime/determinism.test.ts",
+    "verify:low-resource": "vitest run tests/runtime/safety.test.ts --reporter=verbose",
+    "verify:degraded-modes": "vitest run tests/runtime/safety.test.ts tests/runtime/memory.test.ts --reporter=verbose",
+    "verify:end-to-end": "vitest run tests/system/convergence.test.ts -t \"verify:end-to-end\"",
+    "verify:autonomy": "vitest run tests/system/convergence.test.ts -t \"verify:autonomy\"",
+    "verify:cost-efficiency": "vitest run tests/system/convergence.test.ts -t \"verify:cost-efficiency\"",
+    "verify:security": "vitest run tests/system/convergence.test.ts -t \"verify:security\"",
+    "sawyer:doctor:json": "tsx src/cli/sawyer-doctor.ts --json",
+    "sawyer:check-env": "tsx scripts/check-env.ts",
+    "prepare": "husky",
+    "ci:classify": "tsx scripts/ci/classify-failure.ts",
+    "ci:repair-plan": "tsx scripts/ci/repair-plan.ts",
+    "ci:verify-repair": "tsx scripts/ci/verify-repair.ts",
+    "verify:ci-health": "tsx scripts/ci/ci-health.ts",
+    "verify:repo-state": "tsx scripts/ci/repo-state.ts",
+    "verify:release": "tsx scripts/release/sentinel.ts"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix"
+    ]
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "express": "^5.2.1",
+    "stripe": "^22.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^22.15.29",
+    "@types/stripe": "^8.0.416",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
     "@typescript-eslint/parser": "^8.32.0",
     "eslint": "^9.26.0",

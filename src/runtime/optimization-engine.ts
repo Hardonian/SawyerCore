@@ -6,6 +6,8 @@ export interface RoutingSignals {
   thermalState: 'nominal' | 'warm' | 'hot';
   hardwareAvailable: Record<string, boolean>;
   failureHistory: Record<string, number>;
+  preferredProviderName?: string;
+  blockedProviderNames?: string[];
 }
 
 export interface ProviderScore {
@@ -19,6 +21,7 @@ export interface ProviderScore {
     hardwareMatch: number;
     taskSuitability: number;
     failureHistory: number;
+    learnedPreference: number;
   };
 }
 
@@ -45,6 +48,7 @@ export class SawyerOptimizationEngine {
     const taskSuitabilityNorm = supportsTask ? 1 : 0;
     const failures = signals.failureHistory[provider.name] ?? 0;
     const failureNorm = Math.max(0, 1 - failures / 10);
+    const learnedPreference = signals.preferredProviderName === provider.name ? 100 : 0;
 
     const breakdown = {
       latency: Number((latencyNorm * WEIGHTS.latency * 100).toFixed(4)),
@@ -53,12 +57,22 @@ export class SawyerOptimizationEngine {
       availability: Number((availabilityNorm * WEIGHTS.availability * 100).toFixed(4)),
       hardwareMatch: Number((hardwareMatchNorm * WEIGHTS.hardwareMatch * 100).toFixed(4)),
       taskSuitability: Number((taskSuitabilityNorm * WEIGHTS.taskSuitability * 100).toFixed(4)),
-      failureHistory: Number((failureNorm * WEIGHTS.failureHistory * 100).toFixed(4))
+      failureHistory: Number((failureNorm * WEIGHTS.failureHistory * 100).toFixed(4)),
+      learnedPreference
     };
 
     return {
       providerName: provider.name,
-      total: Number(Object.values(breakdown).reduce((sum, x) => sum + x, 0).toFixed(4)),
+      total: Number((
+        breakdown.latency +
+        breakdown.cost +
+        breakdown.privacy +
+        breakdown.availability +
+        breakdown.hardwareMatch +
+        breakdown.taskSuitability +
+        breakdown.failureHistory +
+        breakdown.learnedPreference
+      ).toFixed(4)),
       breakdown
     };
   }

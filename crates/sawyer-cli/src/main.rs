@@ -1,19 +1,24 @@
 use std::{
-    fs::{self, OpenOptions},
+    env, fmt, fs,
     io::{Read, Write},
-    net::TcpStream,
+    net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::Command,
     sync::Arc,
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use sawyer_core::{DeterministicRuntime, RuntimeConfig};
 use sawyer_llm::{LlamaCppHttpAdapter, ModelInfo, Registry, UnavailableAdapter};
 use sawyer_server::{serve, SecurityConfig, ServerState};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
+use sawyer_telemetry::{RequestTelemetry, TelemetryConfig, TelemetryEngine};
+use serde::{Deserialize, Serialize};
+
+const MODE_FILE: &str = "mode";
+const DEFAULT_MODE: RuntimeMode = RuntimeMode::Local;
 
 #[derive(Parser)]
 #[command(
@@ -27,13 +32,84 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Doctor,
+    Doctor(DoctorArgs),
+    Bench(BenchArgs),
+    Calibrate,
+    Stats(StatsArgs),
+    Explain(ExplainArgs),
+    Sim(SimArgs),
     Serve(ServeArgs),
     Up(UpArgs),
     Sim(SimArgs),
     Models(ModelsArgs),
-    FirstRun(FirstRunArgs),
+    Mode(ModeArgs),
+    Quickstart,
+    #[command(name = "first-run")]
+    FirstRun,
+    Security(SecurityArgs),
+    #[command(name = "verify-binary")]
+    VerifyBinary(VerifyBinaryArgs),
+    Audit(AuditArgs),
     Smoke(SmokeArgs),
+    Adaptive(AdaptiveArgs),
+}
+
+#[derive(Args)]
+struct DoctorArgs {
+    #[command(subcommand)]
+    command: Option<DoctorCommands>,
+}
+
+#[derive(Subcommand)]
+enum DoctorCommands {
+    Deps,
+}
+
+#[derive(Args)]
+struct BenchArgs {
+    #[command(subcommand)]
+    command: BenchCommands,
+}
+
+#[derive(Subcommand)]
+enum BenchCommands {
+    Quick,
+    Compare,
+}
+
+#[derive(Args)]
+struct ExplainArgs {
+    #[command(subcommand)]
+    command: ExplainCommands,
+}
+
+#[derive(Subcommand)]
+enum ExplainCommands {
+    Adaptive,
+}
+
+#[derive(Args)]
+struct StatsArgs {
+    #[command(subcommand)]
+    command: StatsCommands,
+}
+
+#[derive(Subcommand)]
+enum StatsCommands {
+    Providers,
+    Tasks,
+    Failures,
+}
+
+#[derive(Args)]
+struct SimArgs {
+    #[command(subcommand)]
+    command: SimCommands,
+}
+
+#[derive(Subcommand)]
+enum SimCommands {
+    Run,
 }
 
 #[derive(Args)]
@@ -99,15 +175,50 @@ enum ModelsCommands {
     },
     Verify,
     ListLocal,
-    Remove {
-        model_id: String,
-    },
+    Verify { path: PathBuf, sha256: String },
+    Recommend,
 }
 
 #[derive(Args)]
-struct FirstRunArgs {
-    #[arg(long, default_value = "./.sawyer/config.toml")]
-    config: PathBuf,
+struct ModeArgs {
+    #[command(subcommand)]
+    command: ModeCommands,
+}
+
+#[derive(Subcommand)]
+enum ModeCommands {
+    List,
+    Explain { mode: RuntimeMode },
+    Set { mode: RuntimeMode },
+    Current,
+}
+
+#[derive(Args)]
+struct SecurityArgs {
+    #[command(subcommand)]
+    command: SecurityCommands,
+}
+
+#[derive(Subcommand)]
+enum SecurityCommands {
+    Audit,
+}
+
+#[derive(Args)]
+struct VerifyBinaryArgs {
+    path: PathBuf,
+    sha256: String,
+}
+
+#[derive(Args)]
+struct AuditArgs {
+    #[command(subcommand)]
+    command: AuditCommands,
+}
+
+#[derive(Subcommand)]
+enum AuditCommands {
+    Verify { path: PathBuf },
 }
 
 #[derive(Args)]
@@ -174,16 +285,40 @@ async fn main() -> Result<()> {
     }
 }
 
-fn doctor() -> Result<()> {
-    let mut runtime = DeterministicRuntime::new(RuntimeConfig::default());
-    runtime.step();
-    println!("Sawyer doctor report");
-    println!("- tick: {}", runtime.tick());
-    println!("- state_dir: {}", state_dir().display());
-    Ok(())
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Doctor(args) => doctor(args),
+        Commands::Bench(args) => match args.command {
+            BenchCommands::Quick => bench_quick(),
+            BenchCommands::Compare => bench_compare(),
+        },
+        Commands::Calibrate => calibrate(),
+        Commands::Stats(args) => stats(args),
+        Commands::Explain(args) => match args.command {
+            ExplainCommands::Adaptive => explain_adaptive(),
+        },
+        Commands::Sim(args) => match args.command {
+            SimCommands::Run => sim_run(),
+        },
+        Commands::Serve(args) => serve_cmd(args).await,
+        Commands::Models(args) => models(args),
+        Commands::Mode(args) => mode(args),
+        Commands::Quickstart => quickstart(),
+        Commands::FirstRun => first_run(),
+        Commands::Security(args) => security(args),
+        Commands::VerifyBinary(args) => verify_binary(args.path, &args.sha256),
+        Commands::Audit(args) => audit(args),
+        Commands::Smoke(args) => smoke(args),
+        Commands::Adaptive(args) => adaptive(args),
+    }
 }
 
 async fn serve_cmd(args: ServeArgs) -> Result<()> {
+    if args.unsafe_dev {
+        eprintln!("\n⚠️ UNSAFE DEV MODE ENABLED -- PRODUCTION SAFETY GUARDS RELAXED\n");
+    }
     let security = SecurityConfig {
         bind_host: args
             .bind
@@ -204,7 +339,7 @@ async fn serve_cmd(args: ServeArgs) -> Result<()> {
     let mut state = ServerState::with_security(
         security,
         args.node_token,
-        std::env::var("SAWYER_CLOUD_API_KEY").is_ok(),
+        env::var("SAWYER_CLOUD_API_KEY").is_ok(),
     );
 
     let provider = parse_host_port(&args.provider_url)?;
@@ -284,13 +419,44 @@ fn sim_run() -> Result<()> {
     Ok(())
 }
 
+fn mode(args: ModeArgs) -> Result<()> {
+    match args.command {
+        ModeCommands::List => {
+            for mode in RuntimeMode::all() {
+                println!("{mode:11} {}", mode.description());
+            }
+            Ok(())
+        }
+        ModeCommands::Explain { mode } => {
+            println!("{} => {}", mode, mode.description());
+            Ok(())
+        }
+        ModeCommands::Set { mode } => {
+            save_mode(mode)?;
+            println!("mode set to {mode}");
+            Ok(())
+        }
+        ModeCommands::Current => {
+            println!("{}", load_mode()?);
+            Ok(())
+        }
+    }
+}
+
 fn models(args: ModelsArgs) -> Result<()> {
     match args.command {
         ModelsCommands::Recommend => models_recommend(),
         ModelsCommands::Download { pack, yes } => models_download(&pack, yes),
         ModelsCommands::Verify => models_verify_all(),
         ModelsCommands::ListLocal => models_list_local(),
-        ModelsCommands::Remove { model_id } => models_remove(&model_id),
+        ModelsCommands::Verify { path, sha256 } => verify_binary(path, &sha256),
+        ModelsCommands::Recommend => {
+            println!("tiny pack: 1.5B gguf q4_k_m (cpu-safe)");
+            println!("balanced pack: 3B gguf q4_k_m (default local)");
+            println!("quality pack: 7B gguf q4_k_m (higher RAM)");
+            println!("workstation pack: 14B gguf q4_k_m (workstation-class only)");
+            Ok(())
+        }
     }
 }
 
@@ -512,52 +678,10 @@ fn http_post(host: &str, port: u16, path: &str, json: &str) -> Result<String> {
     Ok(out)
 }
 
-fn http_health(host: &str, port: u16, path: &str) -> bool {
-    let mut stream = match TcpStream::connect((host, port)) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
-    if stream.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
-    let mut out = String::new();
-    if stream.read_to_string(&mut out).is_err() {
-        return false;
-    }
-    out.starts_with("HTTP/1.1 200")
-}
-
-fn parse_host_port(url: &str) -> Result<(String, u16)> {
-    let stripped = url
-        .strip_prefix("http://")
-        .ok_or_else(|| anyhow!("only http:// localhost URLs are supported"))?;
-    let host_port = stripped.split('/').next().unwrap_or(stripped);
-    let mut parts = host_port.split(':');
-    let host = parts.next().unwrap_or("127.0.0.1").to_string();
-    let port: u16 = parts.next().unwrap_or("80").parse()?;
-    Ok((host, port))
-}
-
-fn parse_local_config(path: &Path) -> Result<LocalConfig> {
-    let text = fs::read_to_string(path)
-        .with_context(|| format!("failed reading config {}", path.display()))?;
-    fn pick(text: &str, key: &str, default: &str) -> String {
-        text.lines()
-            .find_map(|l| {
-                let t = l.trim();
-                if t.starts_with('#') || !t.contains('=') {
-                    return None;
-                }
-                let (k, v) = t.split_once('=')?;
-                if k.trim() == key {
-                    Some(v.trim().trim_matches('"').to_string())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| default.to_string())
+fn load_mode() -> Result<RuntimeMode> {
+    let path = state_dir().join(MODE_FILE);
+    if !path.exists() {
+        return Ok(DEFAULT_MODE);
     }
     Ok(LocalConfig {
         router_bind: pick(&text, "bind", "127.0.0.1:8090"),
@@ -719,8 +843,8 @@ fn detect_ram_gb() -> u64 {
                 return kb / 1024 / 1024;
             }
         }
+        Err(_) => -1.0,
     }
-    8
 }
 
 fn pack_from_model_id(model_id: &str) -> &'static str {
@@ -733,7 +857,12 @@ fn pack_from_model_id(model_id: &str) -> &'static str {
     }
 }
 fn state_dir() -> PathBuf {
-    std::env::var("SAWYER_STATE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("./.sawyer"))
+    if let Ok(custom) = env::var("SAWYER_STATE_DIR") {
+        return PathBuf::from(custom);
+    }
+    PathBuf::from(".sawyer")
+}
+
+fn default_telemetry_path() -> PathBuf {
+    PathBuf::from("./var/telemetry/requests.jsonl")
 }

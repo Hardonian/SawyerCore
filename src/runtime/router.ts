@@ -33,27 +33,42 @@ export class SawyerRouter {
   ): Promise<{ decision: RoutingDecision; result?: InferenceResult; reasons: string[]; degraded?: boolean }> {
     const denied: Array<{ provider: string; reason: string }> = [];
     const scored: Array<{ provider: RuntimeProvider; score: number; breakdown: Record<string, number> }> = [];
+    const blockedProviderNames = new Set(signals.blockedProviderNames ?? []);
 
-    for (const provider of this.providers) {
-      const health = await provider.healthCheck();
-      if (!health.healthy) {
-        denied.push({ provider: provider.name, reason: health.reason ?? 'unhealthy' });
-        continue;
-      }
-      const model = provider.name === 'vllm' ? this.config.providers.vllm.model : provider.name;
-      const policyDecision = this.policyEngine.evaluate(task, provider, {
-        tenantId,
-        model,
-        requestedTokens: task.maxContextTokens,
-        providerHealthy: health.healthy
-      });
+    const results = await Promise.all(
+      this.providers.map(async (provider) => {
+        if (blockedProviderNames.has(provider.name)) {
+          return { provider, state: 'denied', reason: 'blocked by execution graph preference' };
+        }
 
-      if (!policyDecision.allowed) {
-        denied.push({ provider: provider.name, reason: policyDecision.reasons.join('; ') });
-        continue;
+        const health = await provider.healthCheck();
+        if (!health.healthy) {
+          return { provider, state: 'denied', reason: health.reason ?? 'unhealthy' };
+        }
+
+        const model = provider.name === 'vllm' ? this.config.providers.vllm.model : provider.name;
+        const policyDecision = this.policyEngine.evaluate(task, provider, {
+          tenantId,
+          model,
+          requestedTokens: task.maxContextTokens,
+          providerHealthy: health.healthy
+        });
+
+        if (!policyDecision.allowed) {
+          return { provider, state: 'denied', reason: policyDecision.reasons.join('; ') };
+        }
+
+        const scoring = this.optimizer.score(task, provider, signals);
+        return { provider, state: 'scored', score: scoring.total, breakdown: scoring.breakdown };
+      })
+    );
+
+    for (const res of results) {
+      if (res.state === 'denied') {
+        denied.push({ provider: res.provider.name, reason: res.reason! });
+      } else if (res.state === 'scored') {
+        scored.push({ provider: res.provider, score: res.score!, breakdown: res.breakdown! });
       }
-      const scoring = this.optimizer.score(task, provider, signals);
-      scored.push({ provider, score: scoring.total, breakdown: scoring.breakdown });
     }
 
     scored.sort((a, b) => b.score - a.score || a.provider.name.localeCompare(b.provider.name));
