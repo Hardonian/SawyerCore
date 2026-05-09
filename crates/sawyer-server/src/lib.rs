@@ -17,6 +17,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use sawyer_core::{EdgeIntelligenceLayer, EdgeRuntimeConfig};
 use sawyer_kernels::detect_cpu_features;
 use sawyer_llm::{ChatRequest, LocalAdapter, Registry, UnavailableAdapter};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
@@ -100,6 +101,7 @@ pub struct ServerState {
     pub security: SecurityConfig,
     pub node_token: Option<String>,
     pub cloud_api_key_present: bool,
+    edge: Arc<Mutex<EdgeIntelligenceLayer>>,
     limiter: Arc<Mutex<HashMap<IpAddr, Vec<Instant>>>>,
 }
 
@@ -111,6 +113,13 @@ impl Default for ServerState {
             security: SecurityConfig::default(),
             node_token: None,
             cloud_api_key_present: false,
+            edge: Arc::new(Mutex::new(
+                EdgeIntelligenceLayer::from_jsonl(
+                    "./.sawyer/kb.jsonl",
+                    EdgeRuntimeConfig::default(),
+                )
+                .expect("edge init"),
+            )),
             limiter: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -187,6 +196,7 @@ pub fn router(state: ServerState) -> Router {
         .route("/metrics", get(metrics))
         .route("/v1/chat/completions", post(chat))
         .route("/sim/run", post(sim_run))
+        .route("/explain/last", get(explain_last))
         .layer(DefaultBodyLimit::max(max))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -329,13 +339,14 @@ async fn chat(
     let req_for_log = serde_json::to_string(&request).unwrap_or_else(|_| "{}".to_string());
     state.log_audit("chat_request", &req_for_log);
 
-    match state.adapter.chat(request) {
+    let mut edge = state.edge.lock().expect("edge lock poisoned");
+    match edge.execute(&request.model, &request.messages, state.adapter.as_ref()) {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(err) => {
             let body = serde_json::json!({
                 "error": {
-                    "type": "model_unavailable",
-                    "message": err.to_string(),
+                    "type": "execution_rejected",
+                    "message": err,
                     "degraded": true
                 }
             });
@@ -350,6 +361,27 @@ fn total_context_tokens(request: &ChatRequest) -> usize {
         .iter()
         .map(|m| m.content.split_whitespace().count())
         .sum()
+}
+
+#[derive(Serialize)]
+struct ExplainResponse {
+    available: bool,
+    payload: serde_json::Value,
+}
+
+async fn explain_last(State(state): State<ServerState>) -> Json<ExplainResponse> {
+    let edge = state.edge.lock().expect("edge lock poisoned");
+    if let Some(explain) = edge.explain_last() {
+        Json(ExplainResponse {
+            available: true,
+            payload: serde_json::to_value(explain).unwrap_or_else(|_| serde_json::json!({})),
+        })
+    } else {
+        Json(ExplainResponse {
+            available: false,
+            payload: serde_json::json!({"reason": "no completed execution"}),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]

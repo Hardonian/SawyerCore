@@ -10,6 +10,8 @@ members = [
   "crates/sawyer-cli",
   "crates/sawyer-telemetry",
   "crates/sawyer-history",
+  "crates/sawyer-kb",
+  "crates/sawyer-planner",
 ]
 resolver = "2"
 

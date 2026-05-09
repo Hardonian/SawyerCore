@@ -767,8 +767,10 @@ dependencies = [
  "clap",
  "sawyer-core",
  "sawyer-history",
+ "sawyer-kb",
  "sawyer-kernels",
  "sawyer-llm",
+ "sawyer-planner",
  "sawyer-server",
  "sawyer-sim",
  "sawyer-telemetry",
@@ -784,12 +786,16 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "sawyer-history",
+ "sawyer-kb",
  "sawyer-kernels",
+ "sawyer-llm",
  "sawyer-memory",
+ "sawyer-planner",
  "sawyer-scheduler",
  "sawyer-sim",
  "sawyer-telemetry",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -799,6 +805,14 @@ dependencies = [
  "sawyer-telemetry",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "sawyer-kb"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -824,6 +838,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sawyer-planner"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sawyer-scheduler"
 version = "0.1.0"
 
@@ -833,6 +854,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "sawyer-core",
  "sawyer-kernels",
  "sawyer-llm",
  "sawyer-sim",
