@@ -29,6 +29,8 @@ tokio = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 
 sawyer-core = { path = "../sawyer-core" }
+sawyer-planner = { path = "../sawyer-planner" }
+sawyer-kb = { path = "../sawyer-kb" }
 sawyer-kernels = { path = "../sawyer-kernels" }
 sawyer-llm = { path = "../sawyer-llm" }
 sawyer-server = { path = "../sawyer-server", optional = true }

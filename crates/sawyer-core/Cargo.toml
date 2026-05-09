@@ -9,8 +9,12 @@ sawyer-kernels = { path = "../sawyer-kernels" }
 sawyer-memory = { path = "../sawyer-memory" }
 sawyer-scheduler = { path = "../sawyer-scheduler" }
 sawyer-history = { path = "../sawyer-history" }
+sawyer-llm = { path = "../sawyer-llm" }
 sawyer-telemetry = { path = "../sawyer-telemetry" }
+sawyer-kb = { path = "../sawyer-kb" }
+sawyer-planner = { path = "../sawyer-planner" }
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
