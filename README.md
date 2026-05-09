@@ -16,6 +16,9 @@ cargo run -p sawyer-cli -- up
 
 ## What you get
 
+- **Policy Engine**: Resource-aware policy enforcement for autonomous actions.
+- **Ecosystem Layer**: Hardware-aware scheduling, offline-first AI OS behavior, and plugin marketplace.
+- **Edge Intelligence**: Optimized for running on the edge with deterministic performance.
 - Deterministic routing with explicit degraded states.
 - Cloud disabled by default (local-safe posture).
 - Runtime modes (`tiny`, `local`, `performance`, `gateway`, `dev`).

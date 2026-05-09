@@ -1,0 +1,22 @@
+[package]
+name = "sawyer-agents"
+description = "Self-orchestrating multi-agent system with task graph execution, cost-aware scheduling, and self-improvement"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+sawyer-core = { path = "../sawyer-core" }
+sawyer-llm = { path = "../sawyer-llm" }
+sawyer-memory = { path = "../sawyer-memory" }
+sawyer-scheduler = { path = "../sawyer-scheduler" }
+sawyer-telemetry = { path = "../sawyer-telemetry" }
+sawyer-history = { path = "../sawyer-history" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

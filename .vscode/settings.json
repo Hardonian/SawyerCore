@@ -1,0 +1,23 @@
+{
+    "cSpell.words": [
+        "clippy",
+        "codegen",
+        "decisioning",
+        "litellm",
+        "llamacpp",
+        "logicaldisk",
+        "microbench",
+        "noheader",
+        "oneshot",
+        "onnx",
+        "Replayable",
+        "reranking",
+        "rustc",
+        "Sandboxed",
+        "sawyercore",
+        "serde",
+        "thiserror",
+        "uuidv",
+        "vllm"
+    ]
+}

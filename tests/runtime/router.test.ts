@@ -2,7 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { SawyerRouter } from '../../src/runtime/router.js';
 import { AuditLogger, InMemoryAuditSink } from '../../src/observability/audit.js';
 import { safeDefaultConfig } from '../../src/runtime/defaults.js';
-import { MockProvider } from '../../src/providers/providers.js';
+import { MockProvider, CloudFallbackProvider } from '../../src/providers/providers.js';
+import type { RoutingSignals } from '../../src/runtime/optimization-engine.js';
+
+const defaultSignals: RoutingSignals = {
+  batteryPercent: 100,
+  thermalState: 'nominal',
+  hardwareAvailable: { LOCAL_GPU: true },
+  failureHistory: {}
+};
 import type { AiTask } from '../../src/types/contracts.js';
 
 const baseTask: AiTask = {
@@ -31,7 +39,7 @@ describe('SawyerRouter', () => {
     config.policy.tenantPermissions.default.cloudAllowed = true;
     config.policy.cloudEgressAllowedFor = ['public', 'internal'];
 
-    const router = new SawyerRouter([new CloudFallbackProvider()], config, new AuditLogger(new InMemoryAuditSink()));
+    const router = new SawyerRouter([new CloudFallbackProvider('test-key')], config, new AuditLogger(new InMemoryAuditSink()));
     const out = await router.route(
       { ...baseTask, inputClassification: 'private', privacyRequirement: 'local-only', fallbackAllowed: false },
       'default',
@@ -44,8 +52,9 @@ describe('SawyerRouter', () => {
 
   it('unavailable vLLM can fall back to LiteLLM only when allowed', async () => {
     const config = safeDefaultConfig();
+    const audit = new AuditLogger(new InMemoryAuditSink());
     const router = new SawyerRouter([new MockProvider('a'), new MockProvider('b')], config, audit);
-    const out = await router.route(task, 'default', {
+    const out = await router.route(baseTask, 'default', {
       batteryPercent: 80,
       thermalState: 'nominal',
       hardwareAvailable: {
@@ -67,7 +76,7 @@ describe('SawyerRouter', () => {
     const audit = new AuditLogger();
     const config = safeDefaultConfig();
     const router = new SawyerRouter([new FailingProvider('failing')], config, audit);
-    const out = await router.route(task, 'default', {
+    const out = await router.route(baseTask, 'default', {
       batteryPercent: 80,
       thermalState: 'nominal',
       hardwareAvailable: { LOCAL_GPU: true },

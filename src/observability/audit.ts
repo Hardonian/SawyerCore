@@ -2,18 +2,19 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'nod
 import { dirname } from 'node:path';
 
 export interface AuditEvent {
-  requestId: string;
-  taskId: string;
-  requestedTask: string;
-  selectedProvider: string | 'DENY';
-  deniedProviders: Array<{ provider: string; reason: string }>;
+  requestId?: string;
+  taskId?: string;
+  requestedTask?: string;
+  selectedProvider?: string | 'DENY';
+  deniedProviders?: Array<{ provider: string; reason: string }>;
   costEstimateUsd?: number;
   latencyEstimateMs?: number;
-  policyDecision: 'allow' | 'deny';
+  policyDecision?: 'allow' | 'deny';
   scoringBreakdown?: Record<string, number>;
-  fallbackPath: string[];
+  fallbackPath?: string[];
   degradedState?: string;
-  status: 'success' | 'denied' | 'failed';
+  status?: 'success' | 'denied' | 'failed' | 'system_event';
+  systemEvent?: unknown;
   timestamp: string;
 }
 
@@ -40,18 +41,22 @@ export class InMemoryAuditSink implements AuditSink {
     }
   }
 
-  log(event: Omit<AuditEvent, 'timestamp'>): void {
-    const withTimestamp: AuditEvent = {
-      ...event,
-      timestamp: new Date().toISOString()
-    };
-    this.events.push(withTimestamp);
+  write(event: AuditEvent): void {
+    this.events.push(event);
     if (!this.filePath) return;
 
     if (existsSync(this.filePath) && statSync(this.filePath).size >= this.rotateBytes) {
       renameSync(this.filePath, `${this.filePath}.${Date.now()}.bak`);
     }
-    appendFileSync(this.filePath, `${JSON.stringify(withTimestamp)}\n`, { encoding: 'utf8' });
+    appendFileSync(this.filePath, `${JSON.stringify(event)}\n`, { encoding: 'utf8' });
+  }
+
+  log(event: Omit<AuditEvent, 'timestamp'>): void {
+    const withTimestamp: AuditEvent = {
+      ...event,
+      timestamp: new Date().toISOString()
+    };
+    this.write(withTimestamp);
   }
 
   read(): AuditEvent[] {
@@ -74,7 +79,7 @@ export class JsonlAuditSink implements AuditSink {
 function sanitize(event: AuditEvent): AuditEvent {
   return {
     ...event,
-    deniedProviders: event.deniedProviders.map((item) => ({
+    deniedProviders: event.deniedProviders?.map((item) => ({
       provider: item.provider,
       reason: item.reason.replace(/(api[_-]?key|token|secret)=\S+/gi, '$1=[redacted]')
     }))
@@ -84,8 +89,12 @@ function sanitize(event: AuditEvent): AuditEvent {
 export class AuditLogger {
   constructor(private readonly sink: AuditSink = new InMemoryAuditSink()) {}
 
-  log(event: AuditEvent): void {
-    this.sink.write(sanitize(event));
+  log(event: Omit<AuditEvent, 'timestamp'>): void {
+    const withTimestamp: AuditEvent = {
+      ...event,
+      timestamp: new Date().toISOString()
+    };
+    this.sink.write(sanitize(withTimestamp));
   }
 
   list(): AuditEvent[] {

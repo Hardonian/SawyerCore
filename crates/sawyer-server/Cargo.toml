@@ -12,6 +12,7 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 sawyer-kernels = { path = "../sawyer-kernels" }
+sawyer-core = { path = "../sawyer-core" }
 sawyer-llm = { path = "../sawyer-llm" }
 sawyer-sim = { path = "../sawyer-sim" }
 

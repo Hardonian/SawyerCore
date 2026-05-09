@@ -1,0 +1,87 @@
+{
+  "generatedAt": "2026-04-29T02:16:46.813Z",
+  "commit": "8b3ddab",
+  "overall": "failed",
+  "checks": [
+    {
+      "name": "TypeScript typecheck",
+      "status": "pass",
+      "severity": "required",
+      "message": "No type errors found"
+    },
+    {
+      "name": "ESLint",
+      "status": "pass",
+      "severity": "required",
+      "message": "No lint violations"
+    },
+    {
+      "name": "Test suite",
+      "status": "fail",
+      "severity": "required",
+      "message": "some test(s) failed",
+      "details": "> sawyercore@0.1.0 test\n> vitest run\n\n\n\u001b[1m\u001b[46m RUN \u001b[49m\u001b[22m \u001b[36mv3.2.4 \u001b[39m\u001b[90mC:/Users/scott/GitHub/SawyerCore\u001b[39m\n\n \u001b[32m✓\u001b[39m tests/runtime/preload-planner.test.ts \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 4\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/runtime/providers.test.ts \u001b[2m(\u001b[22m\u001b[2m2 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 4\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/saas/growth.test.ts \u001b[2m(\u001b[22m\u001b[2m14 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 15\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/saas/tenant-isolation.test.ts \u001b[2m(\u001b[22m\u001b[2m13 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 10\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/saas/billing.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 11\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/saas/onboarding.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 29\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/runtime/safety.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 16\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/runtime/memory.test.ts \u001b[2m(\u001b[22m\u001b[2m17 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 41\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m tests/runtime/intellig",
+      "evidence": []
+    },
+    {
+      "name": "Build (Rust + TS)",
+      "status": "fail",
+      "severity": "required",
+      "message": "Build failures detected",
+      "details": "Rust build failed: 'cargo' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "evidence": [
+        "'cargo' is not recognized as an internal or external command,\r",
+        "operable program or batch file.",
+        ""
+      ]
+    },
+    {
+      "name": "Forbidden TODO/FIXME",
+      "status": "pass",
+      "severity": "required",
+      "message": "No forbidden markers in critical paths"
+    },
+    {
+      "name": "Secret leakage",
+      "status": "fail",
+      "severity": "critical",
+      "message": "Potential secret(s) found in source code: 6 occurrence(s)",
+      "evidence": [
+        "src\\cli\\sawyer-init.ts: ['VLLM_BASE_URL=http://localhost:8000/v1', 'LITELLM_BASE_URL=http://localhost:4000/v1', 'LLAMACPP_BA",
+        "crates\\sawyer-server\\src\\lib.rs: .body(Body::from(chat_req(\"local\", \"token=abc api_key=xyz\")))",
+        "crates\\sawyer-server\\src\\lib.rs: api_key: \"sk_test123\".to_string(),",
+        "crates\\sawyer-server\\src\\lib.rs: api_key: \"sk_tenant_a\".to_string(),",
+        "crates\\sawyer-server\\src\\lib.rs: api_key: \"sk_tenant_b\".to_string(),"
+      ]
+    },
+    {
+      "name": "Committed env files",
+      "status": "fail",
+      "severity": "critical",
+      "message": "1 environment file(s) accidentally committed",
+      "evidence": [
+        ".env.sawyer.example"
+      ]
+    },
+    {
+      "name": "Hard-crash patterns",
+      "status": "fail",
+      "severity": "critical",
+      "message": "Potential hard-crash pattern(s) detected: 1",
+      "evidence": [
+        "src\\cli\\sawyer-doctor.ts: process.exit() in server code will terminate entire process"
+      ]
+    },
+    {
+      "name": "Unhandled degraded states",
+      "status": "pass",
+      "severity": "required",
+      "message": "No empty catch-then-throw anti-patterns found"
+    }
+  ],
+  "blocked": true,
+  "requiredFailures": [
+    "Test suite",
+    "Build (Rust + TS)"
+  ]
+}
