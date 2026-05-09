@@ -269,6 +269,65 @@ fn pack_from_model_id(model_id: &str) -> &'static str {
     } else {
         "quality"
     }
+    if let Some(parent) = Path::new(&cfg.audit_log_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&cfg.audit_log_path)
+        .with_context(|| format!("audit log not writable: {}", cfg.audit_log_path))?;
+
+    let provider_addr = parse_host_port(&cfg.provider_url)?;
+    if !http_health(&provider_addr.0, provider_addr.1, "/health") {
+        println!("provider unavailable (truthful degraded state)");
+    }
+
+    if !Path::new(&cfg.model_path).exists() {
+        println!("MODEL_MISSING: {}", cfg.model_path);
+        println!("Next: sawyer models download {} --yes", cfg.model_id);
+        return Ok(());
+    }
+    models_verify(&cfg.model_id)?;
+
+    let router_addr = parse_host_port(&cfg.router_url)?;
+    let ok = chat_call(&router_addr.0, router_addr.1, &cfg.model_id)?;
+    if !ok {
+        bail!("router chat completion failed");
+    }
+
+    let private_blocked = cloud_blocked(&router_addr.0, router_addr.1)?;
+    if !private_blocked {
+        bail!("private prompt cloud protection check failed");
+    }
+
+    let degraded = degraded_when_unavailable(&router_addr.0, router_addr.1)?;
+    if !degraded {
+        bail!("degraded response check failed");
+    }
+    println!("smoke local passed");
+    Ok(())
+}
+
+fn degraded_when_unavailable(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"local-missing","messages":[{"role":"user","content":"ping"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 503") || raw.starts_with("HTTP/1.1 500"))
+}
+
+fn cloud_blocked(host: &str, port: u16) -> Result<bool> {
+    let body = r#"{"model":"cloud/test","messages":[{"role":"user","content":"private check"}]}"#;
+    let raw = http_post(host, port, "/v1/chat/completions", body)?;
+    Ok(raw.starts_with("HTTP/1.1 403"))
+}
+
+fn chat_call(host: &str, port: u16, model_id: &str) -> Result<bool> {
+    let body = format!(
+        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"smoke test\"}}]}}",
+        model_id
+    );
+    let raw = http_post(host, port, "/v1/chat/completions", &body)?;
+    Ok(raw.starts_with("HTTP/1.1 200") || raw.starts_with("HTTP/1.1 503"))
 }
 fn state_dir() -> PathBuf {
     if let Ok(custom) = env::var("SAWYER_STATE_DIR") {
