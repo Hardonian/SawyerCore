@@ -1,0 +1,51 @@
+export class PolicyEngine {
+    policy;
+    constructor(policy) {
+        this.policy = policy;
+    }
+    evaluate(task, provider, ctx) {
+        const reasons = [];
+        if (!this.policy) {
+            return { allowed: false, reasons: ['missing policy: fail closed'] };
+        }
+        if (ctx.providerHealthy === false) {
+            reasons.push('provider unhealthy');
+        }
+        const tenantPerm = this.policy.tenantPermissions[ctx.tenantId] ?? this.policy.tenantPermissions.default;
+        if (!tenantPerm)
+            reasons.push('missing tenant permission');
+        if (this.policy.requireAudit === false) {
+            reasons.push('audit logging must be enabled');
+        }
+        if (this.policy.denyModelList.includes(ctx.model))
+            reasons.push('model explicitly denied');
+        if (this.policy.allowModelList.length > 0 && !this.policy.allowModelList.includes(ctx.model)) {
+            reasons.push('model not on allow list');
+        }
+        if (ctx.requestedTokens > this.policy.maxTokens || ctx.requestedTokens > task.maxContextTokens) {
+            reasons.push('token/context limit exceeded');
+        }
+        const cost = provider.estimateCost(task);
+        if (cost > this.policy.maxCostPerRequestUsd || cost > task.maxBudgetUsd) {
+            reasons.push('cost cap exceeded');
+        }
+        const cloudLike = provider.target === 'CLOUD_FALLBACK' || provider.target === 'LITELLM_PROXY';
+        if (cloudLike) {
+            if (!tenantPerm?.cloudAllowed)
+                reasons.push('tenant cloud egress denied');
+            if (!this.policy.cloudEgressAllowedFor.includes(task.inputClassification)) {
+                reasons.push('classification blocked for cloud egress');
+            }
+            if (task.inputClassification === 'private' || task.inputClassification === 'sensitive') {
+                reasons.push('private/sensitive data cannot route to cloud');
+            }
+            if (task.privacyRequirement === 'local-only')
+                reasons.push('task requires local-only execution');
+            if (!task.fallbackAllowed)
+                reasons.push('task fallback disabled');
+            if (!this.policy.fallbackAllowed)
+                reasons.push('policy fallback disabled');
+        }
+        return { allowed: reasons.length === 0, reasons };
+    }
+}

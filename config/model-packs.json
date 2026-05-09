@@ -8,27 +8,22 @@
     {
       "id": "balanced",
       "disabled_by_default": false,
-      "model_ids": ["balanced-q4", "balanced-q5"]
+      "model_ids": ["balanced-q4"]
     },
     {
-      "id": "quality-local",
+      "id": "quality",
       "disabled_by_default": false,
       "model_ids": ["quality-q4"]
-    },
-    {
-      "id": "workstation",
-      "disabled_by_default": true,
-      "model_ids": ["workstation-q4"]
     }
   ],
   "models": [
     {
       "id": "tiny-q4",
-      "source_url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
       "expected_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
-      "size_bytes": 433000000,
+      "size_bytes": 986000000,
       "license": "apache-2.0",
-      "recommended_ram_gb": 4,
+      "recommended_ram_gb": 6,
       "recommended_provider": "llama.cpp",
       "context_limit": 4096,
       "task_suitability": ["chat", "summarization"],
@@ -69,18 +64,6 @@
       "context_limit": 8192,
       "task_suitability": ["chat", "reasoning", "quality-local"],
       "default_local_path": "./models/quality-q4.gguf"
-    },
-    {
-      "id": "workstation-q4",
-      "source_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/resolve/main/qwen2.5-14b-instruct-q4_k_m.gguf",
-      "expected_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
-      "size_bytes": 9300000000,
-      "license": "apache-2.0",
-      "recommended_ram_gb": 32,
-      "recommended_provider": "vllm",
-      "context_limit": 8192,
-      "task_suitability": ["chat", "coding", "long-context"],
-      "default_local_path": "./models/workstation-q4.gguf"
     }
   ]
 }

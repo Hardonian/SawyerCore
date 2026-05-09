@@ -1,0 +1,44 @@
+import { z } from 'zod';
+import { Capability } from '../types/contracts.js';
+export declare const NodeStatusSchema: z.ZodEnum<["online", "offline", "degraded", "stale", "failed", "active"]>;
+export type NodeStatus = z.infer<typeof NodeStatusSchema>;
+export declare const NodeSchema: z.ZodObject<{
+    id: z.ZodString;
+    address: z.ZodString;
+    capabilities: z.ZodArray<z.ZodString, "many">;
+    publicKey: z.ZodString;
+    lastSeen: z.ZodOptional<z.ZodNumber>;
+    status: z.ZodEnum<["online", "offline", "degraded", "stale", "failed", "active"]>;
+    metadata: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodAny>>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    status: "active" | "degraded" | "stale" | "online" | "offline" | "failed";
+    metadata: Record<string, any>;
+    address: string;
+    capabilities: string[];
+    publicKey: string;
+    lastSeen?: number | undefined;
+}, {
+    id: string;
+    status: "active" | "degraded" | "stale" | "online" | "offline" | "failed";
+    address: string;
+    capabilities: string[];
+    publicKey: string;
+    metadata?: Record<string, any> | undefined;
+    lastSeen?: number | undefined;
+}>;
+export type Node = z.infer<typeof NodeSchema>;
+export declare class NodeRegistry {
+    private nodes;
+    private selfId;
+    setSelf(nodeId: string): void;
+    getSelf(): Node | undefined;
+    register(node: Node): void;
+    deregister(nodeId: string): void;
+    getNode(nodeId: string): Node | undefined;
+    getAllNodes(): Node[];
+    getNodesWithCapability(capability: Capability): Node[];
+    updateStatus(nodeId: string, status: NodeStatus): void;
+    clear(): void;
+}
+export declare const globalRegistry: NodeRegistry;
