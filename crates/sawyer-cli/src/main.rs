@@ -447,13 +447,6 @@ fn smoke_local(config_path: &Path) -> Result<()> {
     if !http_health(&provider_addr.0, provider_addr.1, "/health") {
         println!("provider unavailable (truthful degraded state)");
     }
-    let hash = String::from_utf8_lossy(&output.stdout)
-        .split_whitespace()
-        .next()
-        .context("unable to parse sha256sum output")?
-        .to_string();
-    Ok(hash)
-}
 
     if !Path::new(&cfg.model_path).exists() {
         println!("MODEL_MISSING: {}", cfg.model_path);
