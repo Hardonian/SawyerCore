@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-23T02:25:29.174Z",
+  "generatedAt": "2026-08-23T02:26:30.990Z",
   "summary": {
     "totalDeps": 157,
     "totalDepSizeKB": 74241,
@@ -8,7 +8,7 @@
       "@types",
       "@typescript-eslint"
     ],
-    "buildArtifactSizeKB": 554,
+    "buildArtifactSizeKB": 551,
     "maxImportDepth": 1
   },
   "heaviestDeps": [
