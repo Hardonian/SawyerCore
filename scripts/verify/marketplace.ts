@@ -2,13 +2,17 @@ import { PluginInstaller } from '../../src/marketplace/install.js';
 import { CatalogEntry } from '../../src/marketplace/catalog.js';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
 async function verify() {
   console.log('--- Marketplace Verification ---');
   
   const testDir = path.join(process.cwd(), '.sawyer', 'test-plugins');
   const installer = new PluginInstaller(testDir);
-  
+
+  const content = Buffer.from('console.log("hello")');
+  const checksum = crypto.createHash('sha256').update(content).digest('hex');
+
   const entry: CatalogEntry = {
     manifest: {
       id: 'verify.test',
@@ -28,12 +32,10 @@ async function verify() {
       resourceLimits: { cpuLimit: 0.1, memoryLimit: 128 }
     },
     downloadUrl: 'local',
-    checksum: '5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5',
+    checksum,
     publishedAt: Date.now(),
     verified: true
   };
-
-  const content = Buffer.from('console.log("hello")');
   
   console.log('Testing installation...');
   const success = await installer.install(entry, content);

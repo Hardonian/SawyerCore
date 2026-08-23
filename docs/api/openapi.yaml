@@ -1,0 +1,535 @@
+openapi: 3.1.0
+info:
+  title: SawyerCore REST API
+  description: >
+    Deterministic edge AI runtime, tenant management, and governance engine.
+    Supports local-first execution, strict multi-tenant isolation, usage tracking,
+    and truthful degraded states.
+  version: 0.1.0
+servers:
+  - url: http://127.0.0.1:8787
+    description: Default Local Server
+paths:
+  /api/health:
+    get:
+      summary: Health Check
+      description: Returns server operational state without requiring authentication.
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/status:
+    get:
+      summary: Engine Runtime Status
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Current engine status and available providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EngineStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/providers:
+    get:
+      summary: List Available Providers
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of local and remote inference providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderInfo'
+
+  /api/tasks:
+    post:
+      summary: Execute Task
+      description: Execute an AI task with deterministic routing and quota enforcement.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskInput'
+      responses:
+        '200':
+          description: Task execution completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/QuotaExceeded'
+        '503':
+          $ref: '#/components/responses/ServiceDegraded'
+
+  /api/me:
+    get:
+      summary: Current Tenant Profile
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Tenant information, current quotas, and billing breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+
+  /api/api-keys:
+    get:
+      summary: List Tenant API Keys
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of API keys for this tenant (masked)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiKey'
+    post:
+      summary: Create New API Key
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: API key created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: Plaintext API key — save now, not shown again
+                  apiKey:
+                    $ref: '#/components/schemas/ApiKey'
+
+  /api/api-keys/{id}:
+    delete:
+      summary: Revoke API Key
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: API key revoked
+
+  /api/agents:
+    get:
+      summary: List Agent Configurations
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of configured agent workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentConfig'
+    post:
+      summary: Create Agent Configuration
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentInput'
+      responses:
+        '201':
+          description: Agent configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentConfig'
+
+  /api/share:
+    post:
+      summary: Create Shareable Output
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [runId, title, content]
+              properties:
+                runId:
+                  type: string
+                title:
+                  type: string
+                content:
+                  type: object
+                expiresAt:
+                  type: string
+                  format: date-time
+                password:
+                  type: string
+      responses:
+        '201':
+          description: Shareable link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareableOutput'
+
+  /api/share/{id}:
+    get:
+      summary: Retrieve Shareable Output
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-share-password
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Shareable output content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareableOutput'
+        '403':
+          description: Password incorrect
+
+  /v1/chat/completions:
+    post:
+      summary: OpenAI-Compatible Chat Endpoint
+      description: Standard OpenAI-compatible chat completion route with privacy checks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role:
+                        type: string
+                      content:
+                        type: string
+                temperature:
+                  type: number
+                max_tokens:
+                  type: integer
+      responses:
+        '200':
+          description: Chat completion response
+        '403':
+          description: Denied by privacy routing policy
+        '503':
+          description: Provider unavailable (truthful degraded state)
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or body schema
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    QuotaExceeded:
+      description: Tenant task or resource quota exceeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              details:
+                type: string
+    ServiceDegraded:
+      description: Engine running in degraded state
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              degradedState:
+                type: string
+                enum: [NOMINAL, MODEL_UNAVAILABLE, LOW_MEMORY, PARTIAL_EXECUTION]
+
+  schemas:
+    TaskInput:
+      type: object
+      required: [type, input]
+      properties:
+        type:
+          type: string
+          enum: [chat, completion, embedding, classification, summarization]
+        input:
+          type: string
+        model:
+          type: string
+        parameters:
+          type: object
+        privacy:
+          type: string
+          enum: [public, private, sensitive]
+
+    TaskResult:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        runId:
+          type: string
+        output:
+          type: object
+        provider:
+          type: string
+        latencyMs:
+          type: number
+        costUsd:
+          type: number
+        tokensUsed:
+          type: integer
+        degradedState:
+          type: string
+          enum: [NOMINAL, MODEL_UNAVAILABLE, LOW_MEMORY, PARTIAL_EXECUTION]
+        timestamp:
+          type: string
+          format: date-time
+
+    ProviderInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        tier:
+          type: string
+        modelId:
+          type: string
+        contextWindow:
+          type: integer
+        costPer1kTokens:
+          type: number
+        available:
+          type: boolean
+        latencyMs:
+          type: number
+
+    EngineStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, offline]
+        activeProfile:
+          type: string
+        hardware:
+          type: object
+          properties:
+            cpuCores:
+              type: integer
+            availableMemory:
+              type: integer
+            gpuAvailable:
+              type: boolean
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderInfo'
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
+
+    AgentConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        steps:
+          type: array
+          items:
+            type: object
+        triggers:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    CreateAgentInput:
+      type: object
+      required: [name, steps, triggers]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        steps:
+          type: array
+          items:
+            type: object
+            required: [type, config]
+            properties:
+              type:
+                type: string
+              config:
+                type: object
+        triggers:
+          type: array
+          items:
+            type: string
+            enum: [manual, schedule, webhook]
+        enabled:
+          type: boolean
+
+    ShareableOutput:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        runId:
+          type: string
+        title:
+          type: string
+        content:
+          type: object
+        publicUrl:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        views:
+          type: integer
+        password:
+          type: string
+
+    MeResponse:
+      type: object
+      properties:
+        tenant:
+          type: object
+        quota:
+          type: object
+          properties:
+            canExecute:
+              type: boolean
+            reason:
+              type: string
+        billing:
+          type: object

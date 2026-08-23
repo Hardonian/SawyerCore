@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # SawyerCore Runtime Engine
+  sawyer-core:
+    image: ghcr.io/example/sawyercore:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sawyer-core
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      - SAWYER_BIND_HOST=0.0.0.0
+      - SAWYER_PORT=8787
+      - SAWYER_MODE=local-safe
+      - SAWYER_VLLM_ENABLED=true
+      - SAWYER_VLLM_BASE_URL=http://vllm:8000/v1
+      - SAWYER_LITELLM_ENABLED=true
+      - SAWYER_LITELLM_BASE_URL=http://litellm:4000/v1
+    volumes:
+      - sawyer-data:/app/data
+      - sawyer-logs:/app/logs
+    depends_on:
+      vllm:
+        condition: service_healthy
+    networks:
+      - sawyer-net
+
+  # Local vLLM Inference Engine
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: sawyer-vllm
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    command: --model Qwen/Qwen2.5-3B-Instruct --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    networks:
+      - sawyer-net
+
+  # LiteLLM Proxy Layer
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: sawyer-litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    command: --port 4000 --host 0.0.0.0
+    networks:
+      - sawyer-net
+
+networks:
+  sawyer-net:
+    driver: bridge
+
+volumes:
+  sawyer-data:
+  sawyer-logs:
+  huggingface-cache:

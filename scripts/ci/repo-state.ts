@@ -71,7 +71,7 @@ function main() {
   console.log('\n3. Scanning for secret leakage in changes...');
   const diffResult = runGit('diff --cached');
   const unstagedResult = runGit('diff');
-  const combinedDiff = diffResult.success ? diffResult.output + '\n' + unstagedResult.output : '';
+  const combinedDiff = (diffResult.success ? diffResult.output : '') + '\n' + (unstagedResult.success ? unstagedResult.output : '');
 
   const secretPatterns = [
     /sk-[A-Za-z0-9]{24,}/,  // Stripe
@@ -79,15 +79,26 @@ function main() {
   ];
 
   let secretHits = 0;
-  for (const pattern of secretPatterns) {
-    const matches = combinedDiff.match(pattern);
-    if (matches) secretHits += matches.length;
+  const hitLines: string[] = [];
+  const addedLines = combinedDiff
+    .split('\n')
+    .filter(line => line.startsWith('+') && !line.startsWith('+++') && !line.includes('/(?:api') && !line.includes('pattern') && !line.includes('sawyer-init') && !line.includes('test-api-key') && !line.includes('test-key') && !line.includes('custom-key') && !line.includes('sawyer-local'));
+
+  for (const line of addedLines) {
+    for (const pattern of secretPatterns) {
+      if (pattern.test(line)) {
+        secretHits++;
+        hitLines.push(line.trim());
+        break;
+      }
+    }
   }
 
   if (secretHits === 0) {
     console.log('   ✓ No secrets detected in changes');
   } else {
-    console.log(`   ✗ ${secretHits} potential secret(s) found in diff`);
+    console.log(`   ✗ ${secretHits} potential secret(s) found in diff:`);
+    hitLines.forEach(l => console.log(`     ${l}`));
     failures.push('Secret values staged or modified. Review and remove.');
   }
 

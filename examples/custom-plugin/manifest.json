@@ -1,0 +1,24 @@
+{
+  "id": "com.example.sensor-analyzer",
+  "name": "Sensor Stream Anomaly Analyzer",
+  "version": "1.0.0",
+  "entrypoint": "plugin.ts",
+  "capabilities": [
+    {
+      "name": "analyzeVibration",
+      "description": "Performs fast FFT anomaly detection on raw sensor readings",
+      "inputs": {
+        "samples": "number[]",
+        "sampleRate": "number"
+      },
+      "outputs": {
+        "isAnomaly": "boolean",
+        "peakFrequency": "number"
+      }
+    }
+  ],
+  "permissions": [
+    "FILESYSTEM_READ",
+    "HARDWARE_PROBE"
+  ]
+}

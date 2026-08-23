@@ -14,5 +14,5 @@
     "incremental": true,
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo"
   },
-  "include": ["src", "tests", "profiles", "config"]
+  "include": ["src", "tests", "profiles", "config", "sdk"]
 }
