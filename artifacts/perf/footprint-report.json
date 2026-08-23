@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-04-29T02:32:19.162Z",
+  "generatedAt": "2026-08-23T02:08:35.070Z",
   "summary": {
-    "totalDeps": 207,
-    "totalDepSizeKB": 55392,
-    "criticalDeps": 12,
+    "totalDeps": 157,
+    "totalDepSizeKB": 74241,
+    "criticalDeps": 11,
     "duplicateModules": [
       "@types",
       "@typescript-eslint"
     ],
-    "buildArtifactSizeKB": 540,
+    "buildArtifactSizeKB": 554,
     "maxImportDepth": 1
   },
   "heaviestDeps": [
@@ -25,6 +25,18 @@
       "isDev": false
     },
     {
+      "name": "tsx",
+      "sizeKB": 12088,
+      "depth": 1,
+      "isDev": true
+    },
+    {
+      "name": "lightningcss-win32-x64-msvc",
+      "sizeKB": 9279,
+      "depth": 1,
+      "isDev": false
+    },
+    {
       "name": "zod",
       "sizeKB": 3510,
       "depth": 1,
@@ -32,25 +44,19 @@
     },
     {
       "name": "eslint",
-      "sizeKB": 3081,
+      "sizeKB": 2938,
       "depth": 1,
       "isDev": true
     },
     {
-      "name": "rollup",
-      "sizeKB": 2768,
-      "depth": 1,
-      "isDev": false
-    },
-    {
       "name": "vite",
-      "sizeKB": 2183,
+      "sizeKB": 2284,
       "depth": 1,
       "isDev": false
     },
     {
       "name": "vitest",
-      "sizeKB": 1347,
+      "sizeKB": 1861,
       "depth": 1,
       "isDev": true
     },
@@ -67,14 +73,14 @@
       "isDev": false
     },
     {
-      "name": "yaml",
-      "sizeKB": 669,
+      "name": "rolldown",
+      "sizeKB": 816,
       "depth": 1,
       "isDev": false
     },
     {
       "name": "acorn",
-      "sizeKB": 546,
+      "sizeKB": 552,
       "depth": 1,
       "isDev": false
     },
@@ -85,20 +91,14 @@
       "isDev": false
     },
     {
+      "name": "lightningcss",
+      "sizeKB": 502,
+      "depth": 1,
+      "isDev": false
+    },
+    {
       "name": "uri-js",
       "sizeKB": 459,
-      "depth": 1,
-      "isDev": false
-    },
-    {
-      "name": "magic-string",
-      "sizeKB": 449,
-      "depth": 1,
-      "isDev": false
-    },
-    {
-      "name": "chai",
-      "sizeKB": 428,
       "depth": 1,
       "isDev": false
     }
@@ -108,8 +108,7 @@
       "module": "@types",
       "occurrences": [
         "@types/express",
-        "@types/node",
-        "@types/stripe"
+        "@types/node"
       ]
     },
     {
@@ -125,7 +124,7 @@
   "optimizationRecommendations": [
     "Consider replacing or lazy-loading typescript (22.5 MB) if used in cold paths.",
     "Deduplicate overlapping packages: @types, @typescript-eslint (2 duplicate sets)",
-    "Total installed dependencies: 54.1 MB. Consider pruning devDependencies in production.",
+    "Total installed dependencies: 72.5 MB. Consider pruning devDependencies in production.",
     "Convert eager imports to lazy dynamic imports for cold-start-critical paths.",
     "Split optional providers into separate entry points for edge runtime.",
     "Gate expensive analytics or billing initialization behind runtime flags."

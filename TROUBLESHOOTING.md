@@ -7,7 +7,7 @@
 **Recovery Steps**:
 1. Check terminal output for error messages
 2. Verify dependencies: `npm ci` && `cargo build --workspace`
-3. Check port availability: `lsof -i :$SAWYER_HTTP_PORT` (default 8080)
+3. Check port availability: `lsof -i :$SAWYER_HTTP_PORT` (default 8787)
 4. Ensure data directory is writable: `ls -ld $SAWYER_DATA_DIR`
 5. Run diagnostics: `cargo run -p sawyer-cli -- doctor`
 
@@ -43,10 +43,10 @@
 ### Health Checks
 ```bash
 # Basic API health
-curl -s http://127.0.0.1:8080/status | jq .
+curl -s http://127.0.0.1:8787/status | jq .
 
 # Explain last routing decision
-curl -s http://127.0.0.1:8080/explain/last | jq .
+curl -s http://127.0.0.1:8787/explain/last | jq .
 
 # List available modes
 cargo run -p sawyer-cli -- mode list
@@ -127,7 +127,7 @@ npm run verify:release
 - See `docs/install/wsl.md` for WSL-specific setup
 - For GPU access, ensure WSL2 GPU drivers are installed
 - Consider storing data directory on Linux filesystem (not mounted Windows drive)
-- For networking, verify localhost access works: `curl http://127.0.0.1:8080`
+- For networking, verify localhost access works: `curl http://127.0.0.1:8787`
 
 ### Windows Native
 **Common Issues**:

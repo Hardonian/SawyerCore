@@ -1,10 +1,14 @@
-use std::fs;
-use std::path::PathBuf;
+use std::env;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use sawyer_core::{DeterministicRuntime, EdgeRuntimeConfig, RuntimeConfig};
 use sawyer_kb::Scope;
+use sawyer_llm::{LocalAdapter, Registry, UnavailableAdapter};
 use sawyer_planner::{Planner, PlannerConfig};
 use sawyer_server::{serve, SecurityConfig, ServerState};
 use sawyer_sim::{Agent, ScenarioRunner, SimEvent};
@@ -22,29 +26,88 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Run diagnostics on the local environment
     Doctor(DoctorArgs),
+    /// Run benchmarks
     Bench(BenchArgs),
+    /// Calibrate runtime parameters for local hardware
     Calibrate,
+    /// Show runtime statistics
     Stats(StatsArgs),
+    /// Explain the last routing decision
     Explain(ExplainArgs),
+    /// Run a simulation scenario
     Sim(SimArgs),
+    /// Start the HTTP API server
     Serve(ServeArgs),
+    /// Start the full runtime using a local config
     Up(UpArgs),
-    Sim(SimArgs),
+    /// Knowledge base operations
     Kb(KbArgs),
+    /// Generate an execution plan from a prompt
     Plan(PlanArgs),
-    Explain(ExplainArgs),
+    /// Interactive quickstart setup (not yet implemented)
+    Quickstart,
+    /// Manage runtime modes
+    Mode(ModeArgs),
 }
 
 #[derive(Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "127.0.0.1:8090")]
+    #[arg(long, default_value = "127.0.0.1:8787")]
     bind: String,
     #[arg(long, default_value_t = false)]
     allow_lan: bool,
     #[arg(long, env = "SAWYER_NODE_TOKEN")]
     node_token: Option<String>,
+    #[arg(long, default_value = "http://127.0.0.1:8080/v1")]
+    provider_url: String,
+    #[arg(long, default_value = "local-model")]
+    model_id: String,
+    #[arg(long, default_value_t = 1_048_576)]
+    max_request_bytes: usize,
+    #[arg(long, default_value_t = 8192)]
+    max_context_tokens: usize,
+    #[arg(long, default_value_t = false)]
+    allow_cloud: bool,
+    #[arg(long, default_value_t = true)]
+    private_mode: bool,
+    #[arg(long, default_value_t = true)]
+    redact_logs: bool,
+    #[arg(long, default_value = "./logs/sawyer-audit.jsonl")]
+    audit_log_path: String,
+    #[arg(long, default_value_t = 120)]
+    rate_limit_per_minute: u32,
+    #[arg(long, default_value_t = false)]
+    unsafe_dev: bool,
 }
+
+#[derive(Args)]
+struct ModeArgs {
+    #[command(subcommand)]
+    command: ModeCommands,
+}
+
+#[derive(Subcommand)]
+enum ModeCommands {
+    /// List available runtime modes
+    List,
+    /// Show details about a specific mode
+    Explain { mode: String },
+    /// Set the active runtime mode
+    Set { mode: String },
+    /// Show the current runtime mode
+    Current,
+}
+
+#[derive(Args)]
+struct DoctorArgs {}
+
+#[derive(Args)]
+struct BenchArgs {}
+
+#[derive(Args)]
+struct StatsArgs {}
 
 #[derive(Args)]
 struct SimArgs {
@@ -90,7 +153,20 @@ enum ExplainCommands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Doctor => doctor(),
+        Commands::Doctor(_) => doctor(),
+        Commands::Bench(_) => {
+            println!("bench: not yet implemented");
+            println!("FIX: run `cargo bench -p sawyer-core --bench microbench` directly");
+            Ok(())
+        }
+        Commands::Calibrate => {
+            println!("calibrate: not yet implemented");
+            Ok(())
+        }
+        Commands::Stats(_) => {
+            println!("stats: not yet implemented");
+            Ok(())
+        }
         Commands::Serve(args) => serve_cmd(args).await,
         Commands::Up(args) => up_cmd(args).await,
         Commands::Sim(sim) => match sim.command {
@@ -99,6 +175,8 @@ async fn main() -> Result<()> {
         Commands::Kb(args) => kb_cmd(args),
         Commands::Plan(args) => plan_cmd(args),
         Commands::Explain(args) => explain_cmd(args),
+        Commands::Quickstart => quickstart_cmd(),
+        Commands::Mode(args) => mode_cmd(args),
     }
 }
 
@@ -108,6 +186,49 @@ fn doctor() -> Result<()> {
     println!("Sawyer doctor report");
     println!("- tick: {}", runtime.tick());
     println!("- state_dir: {}", state_dir().display());
+    println!("- rust_version: {}", env!("CARGO_PKG_VERSION"));
+    Ok(())
+}
+
+fn quickstart_cmd() -> Result<()> {
+    println!("sawyer quickstart");
+    println!();
+    println!("NOT YET IMPLEMENTED — interactive quickstart is planned.");
+    println!();
+    println!("Manual setup:");
+    println!("  1. cp .env.example .env");
+    println!("  2. cargo build --workspace");
+    println!("  3. cargo run -p sawyer-cli -- serve");
+    println!();
+    println!("See QUICKSTART.md for full instructions.");
+    Ok(())
+}
+
+fn mode_cmd(args: ModeArgs) -> Result<()> {
+    match args.command {
+        ModeCommands::List => {
+            println!("Available runtime modes:");
+            println!("  tiny         - Minimal resource footprint");
+            println!("  local        - Balanced local processing");
+            println!("  performance  - Maximum local performance");
+            println!("  gateway      - Optimized for forwarding to remote providers");
+            println!("  dev          - Development mode with extra logging");
+            println!();
+            println!("Set mode: sawyer mode set <mode>");
+        }
+        ModeCommands::Explain { mode } => {
+            println!("mode explain {mode}: not yet implemented");
+            println!("FIX: see docs/modes.md for mode details");
+        }
+        ModeCommands::Set { mode } => {
+            println!("mode set {mode}: not yet implemented");
+            println!("FIX: set SAWYER_MODE={mode} in .env and restart");
+        }
+        ModeCommands::Current => {
+            let mode = env::var("SAWYER_MODE").unwrap_or_else(|_| "local-safe".to_string());
+            println!("current mode: {mode}");
+        }
+    }
     Ok(())
 }
 
@@ -256,7 +377,6 @@ fn explain_cmd(args: ExplainArgs) -> Result<()> {
                 println!("no explanation found yet");
             }
         }
-        Err(_) => -1.0,
     }
     Ok(())
 }
@@ -269,44 +389,6 @@ fn pack_from_model_id(model_id: &str) -> &'static str {
     } else {
         "quality"
     }
-    if let Some(parent) = Path::new(&cfg.audit_log_path).parent() {
-        fs::create_dir_all(parent)?;
-    }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&cfg.audit_log_path)
-        .with_context(|| format!("audit log not writable: {}", cfg.audit_log_path))?;
-
-    let provider_addr = parse_host_port(&cfg.provider_url)?;
-    if !http_health(&provider_addr.0, provider_addr.1, "/health") {
-        println!("provider unavailable (truthful degraded state)");
-    }
-
-    if !Path::new(&cfg.model_path).exists() {
-        println!("MODEL_MISSING: {}", cfg.model_path);
-        println!("Next: sawyer models download {} --yes", cfg.model_id);
-        return Ok(());
-    }
-    models_verify(&cfg.model_id)?;
-
-    let router_addr = parse_host_port(&cfg.router_url)?;
-    let ok = chat_call(&router_addr.0, router_addr.1, &cfg.model_id)?;
-    if !ok {
-        bail!("router chat completion failed");
-    }
-
-    let private_blocked = cloud_blocked(&router_addr.0, router_addr.1)?;
-    if !private_blocked {
-        bail!("private prompt cloud protection check failed");
-    }
-
-    let degraded = degraded_when_unavailable(&router_addr.0, router_addr.1)?;
-    if !degraded {
-        bail!("degraded response check failed");
-    }
-    println!("smoke local passed");
-    Ok(())
 }
 
 fn degraded_when_unavailable(host: &str, port: u16) -> Result<bool> {
@@ -330,7 +412,7 @@ fn chat_call(host: &str, port: u16, model_id: &str) -> Result<bool> {
     Ok(raw.starts_with("HTTP/1.1 200") || raw.starts_with("HTTP/1.1 503"))
 }
 fn state_dir() -> PathBuf {
-    if let Ok(custom) = env::var("SAWYER_STATE_DIR") {
+    if let Ok(custom) = std::env::var("SAWYER_STATE_DIR") {
         return PathBuf::from(custom);
     }
     PathBuf::from(".sawyer")

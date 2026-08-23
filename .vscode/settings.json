@@ -19,5 +19,34 @@
         "thiserror",
         "uuidv",
         "vllm"
-    ]
+    ],
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.check.allTargets": true,
+    "rust-analyzer.check.extraArgs": ["--", "-D", "warnings"],
+    "editor.formatOnSave": true,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+    "[typescript]": {
+        "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+        "editor.tabSize": 2
+    },
+    "[json]": {
+        "editor.tabSize": 2
+    },
+    "[toml]": {
+        "editor.tabSize": 2
+    },
+    "files.exclude": {
+        "target": true,
+        "node_modules": true,
+        ".local-stack": true
+    },
+    "search.exclude": {
+        "target": true,
+        "node_modules": true,
+        "Cargo.lock": true,
+        "package-lock.json": true
+    },
+    "files.eol": "\n"
 }

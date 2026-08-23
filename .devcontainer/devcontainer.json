@@ -1,0 +1,49 @@
+{
+  "name": "SawyerCore Dev",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20",
+      "installYarnUsingApt": false
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  "postCreateCommand": "npm ci && cargo build --workspace",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "rust-analyzer.check.allTargets": true,
+        "rust-analyzer.check.extraArgs": ["--", "-D", "warnings"],
+        "editor.formatOnSave": true,
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        }
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "dbaeumer.vscode-eslint",
+        "EditorConfig.EditorConfig",
+        "streetsidesoftware.code-spell-checker",
+        "tamasfe.even-better-toml",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  },
+  "forwardPorts": [8787, 8080, 8000, 4000],
+  "portsAttributes": {
+    "8787": { "label": "Sawyer Server", "onAutoForward": "notify" },
+    "8080": { "label": "llama.cpp / Provider", "onAutoForward": "silent" },
+    "8000": { "label": "vLLM", "onAutoForward": "silent" },
+    "4000": { "label": "LiteLLM", "onAutoForward": "silent" }
+  },
+  "remoteEnv": {
+    "SAWYER_MODE": "dev",
+    "SAWYER_BIND": "0.0.0.0:8787"
+  }
+}

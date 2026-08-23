@@ -2,17 +2,28 @@
 
 SawyerCore is a local-first AI runtime that decides where an AI task should run safely.
 
-## One-command start
+## Prerequisites
+
+- **Node.js >=20** — [nodejs.org](https://nodejs.org)
+- **Rust toolchain** — [rustup.rs](https://rustup.rs) (pinned to 1.90.0 via `rust-toolchain.toml`)
+- **Git**
+
+## Quick setup
 
 ```bash
-cargo run -p sawyer-cli -- quickstart
+git clone https://github.com/example/SawyerCore.git
+cd SawyerCore
+npm ci
+cargo build --workspace
 ```
 
-Then launch:
+## Start the server
 
 ```bash
-cargo run -p sawyer-cli -- up
+cargo run -p sawyer-cli -- serve
 ```
+
+The server starts on `http://127.0.0.1:8787` by default.
 
 ## What you get
 
@@ -25,7 +36,7 @@ cargo run -p sawyer-cli -- up
 - Provider comparison with real localhost availability checks.
 - Explainability output for the latest routing decision (`sawyer explain last` / `GET /explain/last`).
 
-## Mode commands
+## Runtime modes
 
 ```bash
 cargo run -p sawyer-cli -- mode list
@@ -36,8 +47,9 @@ cargo run -p sawyer-cli -- mode current
 
 ## Beginner docs
 
-- [Quickstart](docs/quickstart.md)
+- [Quickstart](QUICKSTART.md)
 - [Concepts](docs/concepts.md)
 - [Modes](docs/modes.md)
 - [Model sizing](docs/model-sizing.md)
 - [Single-binary deploy](docs/deploy/single-binary.md)
+- [Contributing](CONTRIBUTING.md)

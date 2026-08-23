@@ -12,6 +12,7 @@ members = [
   "crates/sawyer-history",
   "crates/sawyer-kb",
   "crates/sawyer-planner",
+  "crates/sawyer-agents",
 ]
 resolver = "2"
 

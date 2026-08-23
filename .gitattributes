@@ -1,0 +1,29 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Force LF on shell scripts (they break on Windows with CRLF)
+*.sh text eol=lf
+
+# Force CRLF on Windows-specific scripts
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Force LF on config files that may be used in containers/CI
+Makefile text eol=lf
+Dockerfile text eol=lf
+.editorconfig text eol=lf
+.gitattributes text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.gguf binary
+
+# Lock files — generated, treat as binary for diff
+Cargo.lock linguist-generated=true
+package-lock.json linguist-generated=true

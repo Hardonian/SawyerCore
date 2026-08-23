@@ -1,48 +1,57 @@
 # SawyerCore Operator Quickstart
 
 ## Prerequisites
-- Node.js >=20 (from package.json engines)
-- Rust toolchain (for cargo build)
+- Node.js >=20 (see `package.json` engines)
+- Rust toolchain (pinned to 1.90.0 via `rust-toolchain.toml`)
 - Git
 
 ## Local Setup
 1. Clone repository
 2. Install Node dependencies: `npm ci`
-3. Install Rust toolchain: https://rustup.rs/
-4. Build: `cargo build --workspace`
+3. Build Rust workspace: `cargo build --workspace`
 
-## One-Command Start
+Or use the one-command setup:
 ```bash
-cargo run -p sawyer-cli -- quickstart
+make setup
 ```
 
-## Start Runtime
+## Start the Server
 ```bash
-cargo run -p sawyer-cli -- up
+cargo run -p sawyer-cli -- serve
 ```
+The server starts on `http://127.0.0.1:8787` by default.
 
 ## Verification
 Check status:
 ```bash
+cargo run -p sawyer-cli -- doctor
+curl http://127.0.0.1:8787/status
+curl http://127.0.0.1:8787/explain/last
+```
+
+## Runtime Modes
+```bash
+cargo run -p sawyer-cli -- mode list
 cargo run -p sawyer-cli -- mode current
-curl http://127.0.0.1:8080/status
-curl http://127.0.0.1:8080/explain/last
 ```
 
 ## WSL Notes
-See docs/install/wsl.md for WSL2 setup requirements.
+See `docs/install/wsl.md` for WSL2 setup requirements.
 
 ## Environment Variables
-Copy `.env.example` to `.env` and adjust:
+Copy `.env.example` to `.env` and adjust. Key variables:
 - `SAWYER_MODE`: Runtime mode (tiny, local, performance, gateway, dev)
-- `SAWYER_DATA_DIR`: Data directory path
-- `SAWYER_HTTP_PORT`: HTTP port (default 8080)
+- `SAWYER_PORT`: HTTP port (default: 8787)
+- `SAWYER_PRIVATE_MODE`: Enable private mode (default: true)
+- `SAWYER_CLOUD_FALLBACK`: Allow cloud fallback (default: false)
+
+See `.env.example` for the full list.
 
 ## Offline Mode
 SawyerCore operates local-first. If no local providers are available:
 - Reports degraded status
 - Provides fix steps instead of fake success
-- Use `sawyer doctor` for diagnosis
+- Use `cargo run -p sawyer-cli -- doctor` for diagnosis
 
 ## Plugin Safety
 - Plugins are sandboxed
@@ -50,4 +59,4 @@ SawyerCore operates local-first. If no local providers are available:
 - Only load plugins from trusted sources
 
 ## Release Checklist
-See docs/release/process.md for full release procedure.
+See `docs/release/process.md` for full release procedure.

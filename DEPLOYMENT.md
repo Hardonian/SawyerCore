@@ -18,6 +18,8 @@ cargo build --workspace --release --locked
 ```
 Output binary: `target/release/sawyer` (CLI) and `target/release/sawyer-server` (HTTP API)
 
+Default bind: `127.0.0.1:8787`
+
 ### Reproducible Build
 ```bash
 make build-repro
@@ -48,7 +50,7 @@ sawyer up
 SawyerCore is designed for local-first execution. Container deployment is not officially supported but possible:
 - Copy built binary to container image
 - Set required volumes for data persistence
-- Expose port 8080 for HTTP API
+- Expose port 8787 for HTTP API
 
 ## Configuration
 
@@ -56,7 +58,7 @@ SawyerCore is designed for local-first execution. Container deployment is not of
 Create `.env` file (copy from `.env.example`):
 - `SAWYER_MODE`: Runtime mode (tiny, local, performance, gateway, dev)
 - `SAWYER_DATA_DIR`: Data directory path (default: ./data)
-- `SAWYER_HTTP_PORT`: HTTP port (default: 8080)
+- `SAWYER_HTTP_PORT`: HTTP port (default: 8787)
 - `SAWYER_ENABLE_TELEMETRY`: Enable telemetry (true/false, default: false)
 
 ### Runtime Modes
@@ -103,12 +105,12 @@ sawyer mode set <mode>
 
 ### Basic Health Check
 ```bash
-curl http://127.0.0.1:8080/status
+curl http://127.0.0.1:8787/status
 ```
 
 ### Explain Last Decision
 ```bash
-curl http://127.0.0.1:8080/explain/last
+curl http://127.0.0.1:8787/explain/last
 ```
 
 ### Mode Verification

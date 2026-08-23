@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90.0"
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -26,8 +29,12 @@ jobs:
         run: cargo test --workspace
       - name: Rust build
         run: cargo build --workspace
+      - name: TypeScript typecheck
+        run: npm run typecheck
       - name: Lint TS
         run: npm run lint
+      - name: TS tests
+        run: npm test
       - name: Verify AI runtime (mocked)
         run: npm run verify:ai
       - name: Verify policy
