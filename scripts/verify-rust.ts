@@ -12,6 +12,15 @@ const steps = [
   { name: 'cargo build', cmd: 'cargo build --workspace' },
 ];
 
+// Pre-check for cargo
+try {
+  execSync('cargo --version', { stdio: ['pipe', 'pipe', 'ignore'] });
+} catch {
+  console.error('❌ Rust/Cargo toolchain not found in PATH.');
+  console.error('FIX: Install Rust from https://rustup.rs or ensure cargo is in your PATH.');
+  process.exit(1);
+}
+
 let failed = false;
 
 for (const step of steps) {

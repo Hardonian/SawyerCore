@@ -50,7 +50,8 @@ function runCommand(cmd: string, timeoutMs: number = 120000, cwd?: string): { su
       encoding: 'utf-8',
       cwd: cwd || process.cwd(),
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: timeoutMs
+      timeout: timeoutMs,
+      shell: true
     });
     return { success: true, output: output.trim(), error: '' };
   } catch (err: any) {

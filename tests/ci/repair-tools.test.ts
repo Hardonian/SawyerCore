@@ -17,7 +17,7 @@ describe('CI Repair Tools', () => {
     it('validates repair plan script presence', () => {
       const scriptPath = join(process.cwd(), 'scripts', 'ci', 'repair-plan.ts');
       // Path should be truthy; we could also check file existence
-      expect(scriptPath).toContain('scripts/ci/repair-plan.ts');
+      expect(scriptPath.replace(/\\/g, '/')).toContain('scripts/ci/repair-plan.ts');
     });
   });
 
@@ -26,7 +26,7 @@ describe('CI Repair Tools', () => {
       // We can't actually exec in test environment, just check error handling path
       // Placeholder: verify script is syntactically valid
       const scriptPath = join(process.cwd(), 'scripts', 'ci', 'verify-repair.ts');
-      expect(scriptPath).toContain('scripts/ci/verify-repair.ts');
+      expect(scriptPath.replace(/\\/g, '/')).toContain('scripts/ci/verify-repair.ts');
     });
   });
 });

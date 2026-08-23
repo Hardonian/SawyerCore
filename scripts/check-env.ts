@@ -4,7 +4,7 @@ console.log('--- Sawyer Environment Check ---');
 
 const check = (cmd: string, name: string) => {
   try {
-    const version = execSync(cmd, { stdio: 'pipe' }).toString().trim();
+    const version = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
     console.log(`✅ ${name}: ${version}`);
     return true;
   } catch {

@@ -28,11 +28,16 @@ function checkDiskPressure() {
     try {
         const isWindows = process.platform === 'win32';
         if (isWindows) {
-            execSync('wmic logicaldisk get size,freespace,caption');
+            try {
+                execSync('powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk | Select-Object Size,FreeSpace"', { stdio: ['pipe', 'pipe', 'ignore'] });
+            }
+            catch {
+                // Fallback
+            }
             return 'LOW';
         }
         else {
-            const output = execSync('df -k /').toString().split('\n')[1];
+            const output = execSync('df -k /', { stdio: ['pipe', 'pipe', 'ignore'] }).toString().split('\n')[1];
             const parts = output.split(/\s+/);
             const percent = parseInt(parts[4].replace('%', ''), 10);
             if (percent > 90)
@@ -50,7 +55,7 @@ async function probeGPU() {
     try {
         // Basic check for nvidia-smi
         try {
-            const output = execSync('nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits').toString();
+            const output = execSync('nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits', { stdio: ['pipe', 'pipe', 'ignore'] }).toString();
             const [total, free] = output.split(',').map(s => parseInt(s.trim(), 10) * 1024 * 1024);
             return { gpuAvailable: true, vramTotal: total, vramAvailable: free };
         }

@@ -94,6 +94,7 @@ function extractTestFile(lines) {
     const match = lines.join('\n').match(/● (.*)\(.*\)/);
     return match ? match[1] : undefined;
 }
+import { fileURLToPath } from 'url';
 // Main
 async function main() {
     const args = process.argv.slice(2);
@@ -111,7 +112,12 @@ async function main() {
     const classification = classify(logLines);
     console.log(JSON.stringify(classification, null, 2));
 }
-main().catch(err => {
-    console.error(err);
-    process.exit(1);
-});
+const isDirectExecution = process.argv[1] && (fileURLToPath(import.meta.url) === process.argv[1] ||
+    process.argv[1].endsWith('classify-failure.ts') ||
+    process.argv[1].endsWith('classify-failure.js'));
+if (isDirectExecution) {
+    main().catch(err => {
+        console.error(err);
+        process.exit(1);
+    });
+}

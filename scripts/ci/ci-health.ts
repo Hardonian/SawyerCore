@@ -17,7 +17,7 @@ import { existsSync } from 'fs';
 
 function checkCommand(name: string, versionCmd: string, minVersion?: string): { ok: boolean; message: string } {
   try {
-    const output = execSync(versionCmd, { encoding: 'utf-8' }).trim();
+    const output = execSync(versionCmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], shell: true }).trim();
     const version = output.match(/(\d+)\.(\d+)/);
     if (version && minVersion) {
       const major = parseInt(version[1]);
