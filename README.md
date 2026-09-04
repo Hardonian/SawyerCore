@@ -1,5 +1,9 @@
 # SawyerCore
 
+<!-- BEGIN: REPO HERO -->
+![SawyerCore — hero generated locally on the GPU stack](assets/repo-hero.png)
+<!-- END: REPO HERO -->
+
 SawyerCore is a local-first AI runtime that decides where an AI task should run safely.
 
 ## Prerequisites
